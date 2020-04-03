@@ -155,19 +155,52 @@ class priceEntry {
 
 const msgPrefix = '*';
 const timezoneInvoker = 'timezone ';
+const helpInvoker = 'help';
 const fcInvoker = 'friendcode ';
 const listInvoker = 'stonks';
 const removeInvoker = 'remove';
+const zoneListURL = "https://gist.github.com/baabaablackgoat/92f7408897f0f7e673d20a1301ca5bea";
 client.on('message', msg => {
 	if (msg.author.bot) return;
 	if (msg.channel.type != "text") return;
 	if (!msg.content.startsWith(msgPrefix)) return;
 
+	// help i've fallen and I can't get up
+	if (msg.content.startsWith(msgPrefix + helpInvoker)) {
+		msg.channel.send({embed: {
+			author: {name: client.user.displayName, icon_url: client.user.avatarURL()},
+			description: "Hi, I'm stalnks! I try to keep track of ~~stock~~ stalk prices in Animal Crossing.",
+			color: 16711907,
+			fields: [
+				{
+					name: "Register",
+					value: `To start putting your stalk prices into my database, you have to register your timezone with me first.\nTo do so, use \`${msgPrefix+timezoneInvoker} timeZoneCode\`.\nNote: Avoid using zones like "EST" - these DO NOT account for daylight savings!\nA list of zones can be found here: ${zoneListURL}`
+				},
+				{
+					name: "Adding STONKS",
+					value: `To note your current stalk price, just write ${msgPrefix}xxx and I will keep track of your turnip prices. \nYou must be registered to use this!`,
+				},
+				{
+					name: "All commands",
+					value: `\`${msgPrefix + timezoneInvoker}\` Change your timezone, or show all timezones with \`${msgPrefix + timezoneInvoker} list\`\n\`${msgPrefix + fcInvoker} SW-XXXX-XXXX-XXXX\` Set your Switch friendcode on your profile \n${msgPrefix + listInvoker} Show the best current stonks\n${msgPrefix + helpInvoker} Shows this help menu!`,
+				}
+			],
+			footer: {
+				text: "Made with ❤ by baa baa black goat"
+			},
+			description: `📝 Here's a list of all available timezones: ${zoneListURL}`
+		}});
+	}
+
 	// set/update timezone
 	if (msg.content.startsWith(msgPrefix + timezoneInvoker)) {
 		timezone = msg.content.substring(msgPrefix.length + timezoneInvoker.length);
 		if (timezone == 'list') {
-			msg.channel.send({files: [{attachment: './timezoneList.txt', name: 'timezoneList.txt'}],});
+			msg.channel.send({embed: {
+				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+				color: 4886754,
+				description: `📝 Here's a list of all available timezones: https://gist.github.com/baabaablackgoat/92f7408897f0f7e673d20a1301ca5bea`
+			}});
 			return;
 		}
 		if (!moment.tz.names().includes(timezone)) {
