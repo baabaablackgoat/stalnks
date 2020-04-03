@@ -169,12 +169,13 @@ client.on('message', msg => {
 	if (msg.content.startsWith(msgPrefix + helpInvoker)) {
 		msg.channel.send({embed: {
 			author: {name: client.user.displayName, icon_url: client.user.avatarURL()},
-			description: "Hi, I'm stalnks! I try to keep track of ~~stock~~ stalk prices in Animal Crossing.",
+			title: "Hi, I'm stalnks!",
+			description: "I try to keep track of ~~stock~~ stalk prices in Animal Crossing.",
 			color: 16711907,
 			fields: [
 				{
 					name: "Register",
-					value: `To start putting your stalk prices into my database, you have to register your timezone with me first.\nTo do so, use \`${msgPrefix+timezoneInvoker} timeZoneCode\`.\nNote: Avoid using zones like "EST" - these DO NOT account for daylight savings!\nA list of zones can be found here: ${zoneListURL}`
+					value: `To start putting your stalk prices into my database, you have to register your timezone with me first. To do so, use \`${msgPrefix+timezoneInvoker}timeZoneCode\`.\nNote: Avoid using zones like "EST" - these DO NOT account for daylight savings!\nA list of zones can be found here: ${zoneListURL}`
 				},
 				{
 					name: "Adding STONKS",
@@ -182,7 +183,7 @@ client.on('message', msg => {
 				},
 				{
 					name: "All commands",
-					value: `\`${msgPrefix + timezoneInvoker}\` Change your timezone, or show all timezones with \`${msgPrefix + timezoneInvoker} list\`\n\`${msgPrefix + fcInvoker} SW-XXXX-XXXX-XXXX\` Set your Switch friendcode on your profile \n${msgPrefix + listInvoker} Show the best current stonks\n${msgPrefix + helpInvoker} Shows this help menu!`,
+					value: `\`${msgPrefix + timezoneInvoker}\`\t Change your timezone, or show all timezones with \`${msgPrefix + timezoneInvoker}list\`\n\`${msgPrefix + fcInvoker}SW-XXXX-XXXX-XXXX\`\t Set your Switch friendcode on your profile \n\`${msgPrefix + listInvoker}\`\t Show the best current stonks\n\`${msgPrefix + helpInvoker}\`\t Shows this help menu!`,
 				}
 			],
 			footer: {
