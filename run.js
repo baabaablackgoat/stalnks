@@ -175,7 +175,7 @@ client.on('message', msg => {
 			fields: [
 				{
 					name: "Register",
-					value: `To start putting your stalk prices into my database, you have to register your timezone with me first. To do so, use \`${msgPrefix+timezoneInvoker}timeZoneCode\`.\nNote: Avoid using zones like "EST" - these DO NOT account for daylight savings!\nA list of zones can be found here: ${zoneListURL}`
+					value: `To start putting your stalk prices into my database, you have to register your timezone with me first. To do so, use \`${msgPrefix+timezoneInvoker}timeZoneCode\`.\nNote: Avoid using zones like "EST" - these DO NOT account for daylight savings!`
 				},
 				{
 					name: "Adding STONKS",
