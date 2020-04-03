@@ -311,5 +311,4 @@ client.on('ready', () => {
 	console.log(`stalnks. logged in as ${client.user.tag}`);
 });
 
-const _botToken = fs.readFileSync('bot_token.txt', 'utf8');
-client.login(_botToken);
+client.login(process.env.DISCORD_STONKS_TOKEN);
