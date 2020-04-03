@@ -184,12 +184,15 @@ client.on('message', msg => {
 				{
 					name: "All commands",
 					value: `\`${msgPrefix + timezoneInvoker}\`\t Change your timezone, or show all timezones with \`${msgPrefix + timezoneInvoker}list\`\n\`${msgPrefix + fcInvoker}SW-XXXX-XXXX-XXXX\`\t Set your Switch friendcode on your profile \n\`${msgPrefix + listInvoker}\`\t Show the best current stonks\n\`${msgPrefix + helpInvoker}\`\t Shows this help menu!`,
+				},
+				{
+					name: "Available timezones",
+					value: `Here's a list of all available timezones:\n${zoneListURL}`,
 				}
 			],
 			footer: {
 				text: "Made with ❤ by baa baa black goat"
 			},
-			description: `📝 Here's a list of all available timezones: ${zoneListURL}`
 		}});
 	}
 
