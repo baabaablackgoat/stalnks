@@ -378,10 +378,7 @@ client.on('ready', () => {
 				updateChannel = channel;
 				channel.messages.fetch({limit:10})
 					.then(messages => {
-						let lastMessage;
-						messages.filter(m => m.author.id == client.user.id).forEach((value, key, map)=>{
-							if (!lastMessage || lastMessage.createdTimestamp < value.createdTimestamp) {lastMessage = value;}
-						});
+						let lastMessage = messages.filter(m => m.author.id == client.user.id).sort((a,b) => b.createdTimestamp - a.createdTimestamp).first();
 						if (!lastMessage) {
 							updateChannel.send(bestStonksEmbed()).then(message => {
 								if (message.editable) {
