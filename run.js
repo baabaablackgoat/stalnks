@@ -392,8 +392,10 @@ client.on('ready', () => {
 							if (lastMessage.editable) {
 								updateMessage = lastMessage;
 								console.log("Found valid last update message. Updates will edit this message.");
+								sendBestStonksToUpdateChannel();
 							} else {
 								console.log("Last update message was found, but isn't editable. Updates will be sent as new messages.");
+								sendBestStonksToUpdateChannel();
 							}
 						}
 					})
