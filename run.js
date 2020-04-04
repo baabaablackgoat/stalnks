@@ -87,8 +87,10 @@ function removeExpiredEntries() {
 			}
 		}
 	}
-	console.debug(`Removed ${del_counter} expired entries`);
-	// if (del_counter > 0) { updateBestStonks(); }
+	if (del_counter > 0) {
+		console.debug(`Removed ${del_counter} expired entries`);
+		sendBestStonksToUpdateChannel();
+	}
 }
 let expiredInterval = setInterval(removeExpiredEntries, 60000);
 
@@ -149,9 +151,51 @@ class priceEntry {
 		if (now_tz.weekday() == 7) throw new RangeError("Cannot create offers on a sunday - turnips arent sold on sundays.");
 		this.price = price;
 		this.expiresAt = now_tz.hour() < 12 ? now_tz.clone().hour(12).minute(0).second(0).millisecond(0) : now_tz.clone().hour(24).minute(0).second(0).millisecond(0);
-		// updateBestStonks();
 	}
 }
+
+// Variables for the update channel functionality
+let updateChannel;
+let updateMessage;
+
+
+function bestStonksEmbed() {
+	updateBestStonks();
+	embedFields = [];
+	for (let i = 0; i < best_stonks.length; i++) {
+		if (best_stonks[i] != null) {
+			embedFields.push({
+				value: `**💰 ${best_stonks[i].price} Bells** for another ${best_stonks[i].timeLeftString()} | <@${best_stonks[i].user.id}>`,
+				name: `${moment().tz(best_stonks[i].user.timezone).format("h:mm a")} | ${best_stonks[i].user.friendcode ? best_stonks[i].user.friendcode : "No friendcode specified"}`
+			});
+		}
+	}
+	let output = new Discord.MessageEmbed();
+	output.author = {name: "📈 current stalnks", url: client.user.avatarURL()};
+	output.color = 16711907;
+	output.description = "Keep in mind that Nook's Cranny is *usually* open between 8am - 10pm local time.";
+	output.fields = embedFields.length > 0 ? embedFields : [{name: "No prices registered so far.", value: "Register your prices with *value"}];
+	output.footer = {text: 'Stalnks checked (your local time):'};
+	output.timestamp = moment().utc().format();
+	return output;
+}
+
+
+function sendBestStonksToUpdateChannel() {
+	if (!updateChannel) return;
+	if (updateMessage) {
+		updateMessage.edit(bestStonksEmbed())
+			.catch(err => {
+				console.log("Error occured while attempting to update the previously sent message: "+err);
+			});
+	} else {
+		updateChannel.send(bestStonksEmbed())
+			.catch(err => {
+				console.log("Error occured while attempting to send an update message: "+err);
+			});
+	}
+}
+
 
 const msgPrefix = '*';
 const timezoneInvoker = 'timezone ';
@@ -265,30 +309,7 @@ client.on('message', msg => {
 
 	// list best stonks
 	if (msg.content.startsWith(msgPrefix + listInvoker)) {
-		updateBestStonks();
-		embedFields = [];
-		for (let i = 0; i < best_stonks.length; i++) {
-			if (best_stonks[i] != null) {
-				embedFields.push({
-					value: `**💰 ${best_stonks[i].price} Bells** for another ${best_stonks[i].timeLeftString()} | <@${best_stonks[i].user.id}>`,
-					name: `${moment().tz(best_stonks[i].user.timezone).format("h:mm a")} | ${best_stonks[i].user.friendcode ? best_stonks[i].user.friendcode : "No friendcode specified"}`
-				});
-			}
-		}
-		msg.channel.send({
-			embed: {
-				author: {
-					name: "📈 current stalnks", url: client.user.avatarURL(),
-				},
-				color: 16711907,
-				description: "Keep in mind that Nook's Cranny is *usually* open between 8am - 10pm local time.",
-				fields: embedFields.length > 0 ? embedFields : [{name: "No prices registered so far.", value: "Register your prices with *value"}],
-				footer: {
-					text: 'Stalnks checked (your local time):'
-				},
-				timestamp: moment().utc().format()
-			}
-		});
+		msg.channel.send(bestStonksEmbed());
 		return;
 	}
 	// remove a stonk
@@ -332,6 +353,7 @@ client.on('message', msg => {
 			color: 4289797,
 			description: `💰 updated listing: **${stonks_value} Bells**, expires in ${priceData[msg.author.id].timeLeftString()}`
 		}});
+		sendBestStonksToUpdateChannel();
 		return;
 	} else {
 		priceData[msg.author.id] = new priceEntry(msg.author.id, stonks_value);
@@ -340,12 +362,56 @@ client.on('message', msg => {
 			color: 4289797,
 			description: `💰 new listing: **${stonks_value} Bells**, expires in ${priceData[msg.author.id].timeLeftString()}`
 		}});
+		sendBestStonksToUpdateChannel();
 		return;
 	}
 });
 
 client.on('ready', () => {
 	console.log(`stalnks. logged in as ${client.user.tag}`);
+
+	// get stuff about the channel and the possibly editable message
+
+	if (process.env.DISCORD_STONKS_UPDATECHANNELID) {
+		client.channels.fetch(process.env.DISCORD_STONKS_UPDATECHANNELID)
+			.then(channel => {
+				updateChannel = channel;
+				channel.messages.fetch({limit:10})
+					.then(messages => {
+						let lastMessage;
+						messages.filter(m => m.author.id == client.user.id).forEach((value, key, map)=>{
+							if (!lastMessage || lastMessage.createdTimestamp < value.createdTimestamp) {lastMessage = value;}
+						});
+						if (!lastMessage) {
+							updateChannel.send(bestStonksEmbed()).then(message => {
+								if (message.editable) {
+									updateMessage = message;
+									console.log("Created a new editable update message. Updates will edit this message.");
+								} else {
+									console.log("Created a new update message, but it isn't editable. Updates will be sent as new messages.");
+								}
+							});
+						} else {
+							if (lastMessage.editable) {
+								updateMessage = lastMessage;
+								console.log("Found valid last update message. Updates will edit this message.");
+							} else {
+								console.log("Last update message was found, but isn't editable. Updates will be sent as new messages.");
+							}
+						}
+					})
+					.catch(err => {
+						updateChannel = false;						
+						console.log("Error occured while attempting to fetch messages from channel: "+err+ "\nAssuming channel is inaccessible. No updates will be sent.");
+					});
+			})
+			.catch(err => {
+				updateChannel = false;
+				console.error("Error occured while attempting to fetch update channel: "+err+"\nNo updates will be sent.");
+			});
+	} else {
+		console.log("No channel was specified as an environment variable. No updates will be sent.");
+	}	
 });
 
 client.login(process.env.DISCORD_STONKS_TOKEN);
