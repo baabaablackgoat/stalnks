@@ -171,7 +171,7 @@ function bestStonksEmbed() {
 		}
 	}
 	let output = new Discord.MessageEmbed();
-	output.author = {name: "📈 current stalnks", icon_url: client.user.avatarURL()};
+	output.author = {name: "📈 current stalnks"};
 	output.color = 16711907;
 	output.description = "Keep in mind that Nook's Cranny is *usually* open between 8am - 10pm local time.";
 	output.fields = embedFields.length > 0 ? embedFields : [{name: "No prices registered so far.", value: "Register your prices with *value"}];
