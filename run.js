@@ -118,7 +118,7 @@ function updateBestStonks() {
 
 
 class userEntry { // there doesn't seem to be anything non-experimental for private fields
-	constructor(id, timezone, friendcode = null) {
+	constructor(id, timezone, friendcode) {
 		this.id = id; // probably redundant
 		this.timezone = timezone;
 		this.friendcode = friendcode;
@@ -171,11 +171,25 @@ function bestStonksEmbed() {
 		}
 	}
 	let output = new Discord.MessageEmbed();
-	output.author = {name: "📈 current stalnks", url: client.user.avatarURL()};
+	output.author = {name: "📈 current stalnks", icon_url: client.user.avatarURL()};
 	output.color = 16711907;
 	output.description = "Keep in mind that Nook's Cranny is *usually* open between 8am - 10pm local time.";
 	output.fields = embedFields.length > 0 ? embedFields : [{name: "No prices registered so far.", value: "Register your prices with *value"}];
 	output.footer = {text: 'Stalnks checked (your local time):'};
+	output.timestamp = moment().utc().format();
+	return output;
+}
+
+function userProfileEmbed(member) {
+	if (!userData.hasOwnProperty(member.user.id)) throw new ReferenceError("Profile embed was requested, but user was never registered");
+	let output = new Discord.MessageEmbed();
+	output.author = {name: member.displayName, icon_url: member.user.avatarURL()};
+	output.color = 16711907;
+	output.fields = [
+		{name: "Friendcode", value: userData[member.user.id].friendcode ? userData[member.user.id].friendcode : "No friendcode registered.", inline: false},
+		{name: "Current stonks", value: priceData.hasOwnProperty(member.user.id) ? "**" + priceData[member.user.id].price +" Bells** for another "+ priceData[member.user.id].timeLeftString() : "No active stonks", inline: true},
+		{name: "Timezone", value: userData[member.user.id].timezone ? userData[member.user.id].timezone : "No timezone registered.", inline: true},
+	];
 	output.timestamp = moment().utc().format();
 	return output;
 }
@@ -203,6 +217,7 @@ const helpInvoker = 'help';
 const fcInvoker = 'friendcode ';
 const listInvoker = 'stonks';
 const removeInvoker = 'remove';
+const profileInvoker = 'profile';
 const zoneListURL = "https://gist.github.com/baabaablackgoat/92f7408897f0f7e673d20a1301ca5bea";
 client.on('message', msg => {
 	if (msg.author.bot) return;
@@ -239,6 +254,79 @@ client.on('message', msg => {
 			},
 		}});
 	}
+	// Show profile
+	if (msg.content.startsWith(msgPrefix + profileInvoker)) {
+		// searched user by mention
+		if (msg.mentions.members.size > 0) { 
+			if (msg.mentions.members.size > 1) {
+				msg.channel.send({embed: {
+					author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+					color: 16312092,
+					description: `⚠ I can only show one user's profile at a time.`
+				}});
+				return;
+			}
+			let target = msg.mentions.members.first();
+			if (!userData.hasOwnProperty(target.id)) {
+				msg.channel.send({embed: {
+					author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+					color: 16312092,
+					description: `⚠ The mentioned user ${target.user.tag} does not have a profile with me.`
+				}});
+				return;
+			}
+			msg.channel.send(userProfileEmbed(msg.mentions.members.first()));
+			return;
+		}
+
+		// if there's more data try to find a member by name
+		let possibleUsername = msg.content.substring(msgPrefix.length + profileInvoker.length).trim();
+		if (possibleUsername.length > 0) {
+			msg.guild.members.fetch()
+				.then(guildMembers => {
+					let target = guildMembers.find(guildMember => guildMember.displayName == possibleUsername);
+					if (!target) target = guildMembers.find(guildMember => guildMember.user.username == possibleUsername);
+					if (!target) {
+						msg.channel.send({embed: {
+							author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+							color: 16312092,
+							description: `⚠ I couldn't find a member on this server with this name.`
+						}});
+						return;
+					}
+					if (!userData.hasOwnProperty(target.id)) {
+						msg.channel.send({embed: {
+							author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+							color: 16312092,
+							description: `⚠ The found user ${target.user.tag} does not have a profile with me.`
+						}});
+						return;
+					}
+					msg.channel.send(userProfileEmbed(target));
+					return;
+				}).catch(err => {
+					console.log("Error while fetching guild members to show other users profile: "+err);
+					msg.channel.send({embed: {
+						author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+						color: 16312092,
+						description: `♿ Something went wrong while fetching the server members. Please try again later.`
+					}});
+				});
+			return;
+		}
+		// if there's no data, get the profile of the invoking user
+		if (!userData.hasOwnProperty(msg.member.id)) {
+			msg.channel.send({embed: {
+				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+				color: 16312092,
+				description: `⚠ You don't have a profile with me!`
+			}});
+			return;
+		}
+		msg.channel.send(userProfileEmbed(msg.member)); // show invoking member profile;
+		return;
+	}
+
 
 	// set/update timezone
 	if (msg.content.startsWith(msgPrefix + timezoneInvoker)) {
@@ -260,7 +348,7 @@ client.on('message', msg => {
 			return;
 		}
 		if (userData.hasOwnProperty(msg.author.id)) userData[msg.author.id].timezone = timezone;
-		else userData[msg.author.id] = new userEntry(msg.author.id, timezone);
+		else userData[msg.author.id] = new userEntry(msg.author.id, timezone, null);
 		msg.channel.send({embed: {
 			author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 			color: 4289797,
@@ -272,16 +360,16 @@ client.on('message', msg => {
 	// friendcode handling
 	if (msg.content.startsWith(msgPrefix + fcInvoker)) {
 		fc = msg.content.substring(msgPrefix.length + fcInvoker.length);
-		if (!userData.hasOwnProperty(msg.author.id)) {
-			msg.channel.send({embed: {
-				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
-				color: 16312092,
-				description: `⚠ Please register your timezone before registering your friendcode.`
-			}});
-			return;
-		}
 		const fcRegex = /^SW-\d{4}-\d{4}-\d{4}$/;
 		if (['remove', 'delete', 'no'].includes(fc)) {
+			if (!userData.hasOwnProperty(msg.author.id) || !userData[msg.author.id].friendcode) {
+				msg.channel.send({embed: {
+					author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+					color: 13632027,
+					description: `⚠ No friendcode associated with your user was found .`
+				}});
+				return;
+			}
 			userData[msg.author.id].friendcode = null;
 			msg.channel.send({embed: {
 				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
@@ -298,7 +386,11 @@ client.on('message', msg => {
 			}});
 			return;
 		}
-		userData[msg.author.id].friendcode = fc;
+		if (userData.hasOwnProperty(msg.author.id)) {
+			userData[msg.author.id].friendcode = fc;
+		} else {
+			userData[msg.author.id] = new userEntry(msg.author.id, null, fc);
+		}
 		msg.channel.send({embed: {
 			author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 			color: 4289797,
@@ -321,7 +413,7 @@ client.on('message', msg => {
 	// actual stonks handling
 	stonks_value = Number(msg.content.substring(msgPrefix.length));
 	if (isNaN(stonks_value)) return;
-	if (!userData.hasOwnProperty(msg.author.id)) {
+	if (!userData.hasOwnProperty(msg.author.id) || !userData[msg.author.id].timezone) {
 		msg.channel.send({embed: {
 			author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 			color: 16312092,
