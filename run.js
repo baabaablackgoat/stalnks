@@ -194,7 +194,6 @@ function userProfileEmbed(member) {
 	return output;
 }
 
-
 function sendBestStonksToUpdateChannel() {
 	if (!updateChannel) return;
 	if (updateMessage) {
@@ -210,6 +209,10 @@ function sendBestStonksToUpdateChannel() {
 	}
 }
 
+const inaccurateTimezones = ['CET', 'EET', 'EST', 'EST5EDT', 'GB', 'HST', 'MET', 'MST', 'PRC', 'ROC', 'ROK', 'UCT','WET', 'Universal', 'Etc/Universal',
+	'Etc/GMT', 'Etc/GMT+0', 'Etc/GMT+1', 'Etc/GMT+10','Etc/GMT+11','Etc/GMT+12','Etc/GMT+2','Etc/GMT+3','Etc/GMT+4','Etc/GMT+5','Etc/GMT+6','Etc/GMT+7',
+	'Etc/GMT+8','Etc/GMT+9','Etc/GMT-0','Etc/GMT-1','Etc/GMT-10','Etc/GMT-11','Etc/GMT-12','Etc/GMT-13','Etc/GMT-14','Etc/GMT-2','Etc/GMT-3','Etc/GMT-4',
+	'Etc/GMT-5','Etc/GMT-6','Etc/GMT-7','Etc/GMT-8','Etc/GMT-9','Etc/GMT0'];
 
 const msgPrefix = '*';
 const timezoneInvoker = 'timezone ';
@@ -327,7 +330,6 @@ client.on('message', msg => {
 		return;
 	}
 
-
 	// set/update timezone
 	if (msg.content.startsWith(msgPrefix + timezoneInvoker)) {
 		timezone = msg.content.substring(msgPrefix.length + timezoneInvoker.length);
@@ -349,11 +351,19 @@ client.on('message', msg => {
 		}
 		if (userData.hasOwnProperty(msg.author.id)) userData[msg.author.id].timezone = timezone;
 		else userData[msg.author.id] = new userEntry(msg.author.id, timezone, null);
-		msg.channel.send({embed: {
-			author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
-			color: 4289797,
-			description: `✅ Your timezone is now set to ${timezone}. It should be ${moment().tz(timezone).format("dddd, MMMM Do YYYY, h:mm:ss a")}`
-		}});
+		if (inaccurateTimezones.includes(timezone)) {
+			msg.channel.send({embed: {
+				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+				color: 4289797,
+				description: `✅ Your timezone is now set to ${timezone}. It should be ${moment().tz(timezone).format("dddd, MMMM Do YYYY, h:mm:ss a")}.\n**Please note that this timezone does NOT account for things like Daylight Savings.** It is highly recommended to switch to a timezone involving your location.`
+			}});
+		} else {
+			msg.channel.send({embed: {
+				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+				color: 4289797,
+				description: `✅ Your timezone is now set to ${timezone}. It should be ${moment().tz(timezone).format("dddd, MMMM Do YYYY, h:mm:ss a")}`
+			}});
+		}
 		return;
 	}
 
@@ -388,15 +398,21 @@ client.on('message', msg => {
 		}
 		if (userData.hasOwnProperty(msg.author.id)) {
 			userData[msg.author.id].friendcode = fc;
+			msg.channel.send({embed: {
+				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+				color: 4289797,
+				description: `✅ Your friendcode has been added to your profile.`
+			}});
+			return;
 		} else {
 			userData[msg.author.id] = new userEntry(msg.author.id, null, fc);
+			msg.channel.send({embed: {
+				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+				color: 4289797,
+				description: `✅ Your profile with the associated friend code has been created.`
+			}});
+			return;
 		}
-		msg.channel.send({embed: {
-			author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
-			color: 4289797,
-			description: `✅ Your friendcode has been added to your profile.`
-		}});
-		return;
 	}
 
 	// list best stonks
