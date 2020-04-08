@@ -8,6 +8,7 @@ const userDataPath = './data/userData.json';
 let userData = {}; // this shall store the timezones of our users
 const priceDataPath = './data/priceData.json';
 let priceData = {}; // this will be some form of an ordered list
+let queueData = {}; // this object handles queues, and doesn't need to be saved cause queues will break on restarts anyways.
 
 fs.readFile(userDataPath, 'utf8', (err, data) => {
 	if (err) {
@@ -154,6 +155,54 @@ class priceEntry {
 	}
 }
 
+class queueEntry {
+	constructor(userId) {
+		this.id = userId; // to allow for self-deletion
+		this.dodoCode = null;
+		this.addlInformation = "No additional information specified.";
+		this.userQueue = [];
+		this.currentUserProcessed = null;
+		this.acceptingEntries = true;
+	}
+
+	update(){
+		if (this.currentUserProcessed) return;
+		if (this.userQueue.length == 0) {
+			if (!this.acceptingEntries) delete queueData[this.id];
+			return;
+		}
+		if (!this.dodoCode) return;
+		this.currentUserProcessed = this.userQueue.shift();
+		this.currentUserProcessed.send({embed:{
+			color: 16312092,
+			description: `⏰ It's your turn!\n The Dodo Code is **${this.dodoCode}**.\nYou have **5 minutes** to connect, sell your turnips, and leave the island. After these 5 minutes, the next user in the queue will be automatically messaged.\nShould you be done early, please click 👍 to notify that you're done.\nIf you wish to reconnect later to sell more, click 🔁 to be added to the queue again. *Please note that this also ends your turn!*`
+		}}).then(msg => {
+			msg.react('👍');
+			msg.react('🔁'); 
+			const doneCollector = msg.createReactionCollector((r,u) => !u.bot && ['👍','🔁'].includes(r.emoji.name), {time: 5*60*1000, max: 1});
+			doneCollector.on('end', (collected, reason) => {
+				if (reason != 'time' && collected.size != 0 && collected.first().emoji.name == '🔁') {
+					this.userQueue.push(this.currentUserProcessed);
+					msg.channel.send({embed:{
+						color: 4886754,
+						description: `🔁 You have been added back into the queue. Your turn is over for now.`
+					}});
+				} else {
+					msg.channel.send({embed:{
+						color: 4886754,
+						description: `🤚 Your turn is now over.`
+					}});
+				}
+				this.currentUserProcessed = null;
+				this.update();
+			});
+		}).catch(err => {
+			console.log("Failed to message a user the dodo code, skipping user: "+err);
+			this.update();
+		});
+	}
+}
+
 // Variables for the update channel functionality
 let updateChannel;
 let updateMessage;
@@ -221,6 +270,7 @@ const fcInvoker = 'friendcode ';
 const listInvoker = 'stonks';
 const removeInvoker = 'remove';
 const profileInvoker = 'profile';
+const queueInvoker = 'queue';
 const zoneListURL = "https://gist.github.com/baabaablackgoat/92f7408897f0f7e673d20a1301ca5bea";
 client.on('message', msg => {
 	if (msg.author.bot) return;
@@ -426,7 +476,109 @@ client.on('message', msg => {
 		return;
 	}
 
-	// actual stonks handling
+	// create queues for players to join one by one
+	const validDodoCodeRegex = /(\d|[A-HJ-NP-Z]){5}/;
+	if (msg.content.startsWith(msgPrefix + queueInvoker)) {
+		if (queueData.hasOwnProperty(msg.author.id)) { // prevent two queues from one user
+			msg.channel.send({embed: {
+				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+				color: 16312092,
+				description: `♿ You seem to already have a running queue!`
+			}});
+			return;
+		}
+		// Create a new queue
+		queueData[msg.author.id] = new queueEntry(msg.author.id);
+		msg.author.send({embed: {
+			author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+			color: 16711907,
+			description: `ℹ Please send your Dodo-Code™ as a direct DM to me. Capitalization *does* matter.\nIf you wish to add more information, simply put it in *the same message* seperated from the Dodo-Code™ with a single space. Keep your additional information PG, please.\n **This request will expire in 3 minutes.**`
+		}})
+			.then(dmMsg => {
+				// Create a message collector in the DM Channel of the creating user to collect the dodo code and potential additional information.
+				const dodoCodeCollector = dmMsg.channel.createMessageCollector(m => !m.author.bot && validDodoCodeRegex.test(m.content.substring(0,6).trim()), {time: 3*60*1000, max: 1});
+				let informationMessage;
+				let informationEmbed;
+				dodoCodeCollector.on('end', (collected, reason) => {
+					if (reason == 'time' || collected.size != 1) {
+						dmMsg.edit({embed: {
+							author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+							color: 16312092,
+							description: `⚠ This queue creation request has expired, or the sent message was invalid.`
+						}});
+						// Update the queue info message to notify users this queue was never created.
+						if (informationMessage) {
+							informationEmbed.description = `❌ This queue has been cancelled or has timed out on creation.`;
+							informationMessage.edit(informationEmbed);
+						}
+						delete queueData[msg.author.id];
+						return;
+					}
+					else {
+						dmMsg.edit({embed: {
+							author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+							color: 4289797,
+							description: `✅ Your Dodo code and possible additional information have been added. Queueing will now commence.`
+						}});
+						// Update the new queue entry with the collected message
+						const collectedCreatorMessage = collected.first() ;
+						queueData[msg.author.id].dodoCode = collectedCreatorMessage.content.substring(0,5);
+						if (collectedCreatorMessage.content.substring(6).trim().length != 0) queueData[msg.author.id].addlInformation = collectedCreatorMessage.content.substring(6, 1000).trim();
+						
+						// Update the queue info message to contain useful data.
+						if (informationMessage) {
+							informationEmbed.description = `ℹ If you wish to join this queue, react to this message with 📈. **This queue will close in 15 minutes from creation.**`;
+							informationEmbed.fields = [
+								{name: "Stalk price", value: priceData.hasOwnProperty(msg.author.id) ? priceData[msg.author.id].price + " Bells" : "Unknown", inline: false},
+								{name: "Additional information", value: queueData[msg.author.id].addlInformation, inline: false}
+							];
+							informationMessage.edit(informationEmbed);
+						}
+						// Update said queue to allow processing of users.
+						queueData[msg.author.id].update();
+					}
+				});
+
+				// Create a message for users to react to to join the queue.
+				informationEmbed = new Discord.MessageEmbed();
+				informationEmbed.author = {name: msg.member.displayName, icon_url: msg.author.avatarURL()};
+				informationEmbed.color = 16711907;
+				informationEmbed.description = `ℹ A queue is currently being set up for **${priceData.hasOwnProperty(msg.author.id) ? priceData[msg.author.id].price : "an unknown amount of"} Bells.**\n If you wish to join this queue, react to this message with 📈. **This queue will close in 15 minutes.**`;
+				msg.channel.send(informationEmbed).then(reactionJoinMsg => {
+						informationMessage = reactionJoinMsg;
+						reactionJoinMsg.react("📈");
+						const joinReactionCollector = reactionJoinMsg.createReactionCollector((r,u) => !u.bot && u.id != msg.author.id && r.emoji.name == "📈", {time: 15*60*1000}); 
+						joinReactionCollector.on('collect', (reaction, reactingUser) => {
+							//Add the reacting user to the queue and fire an update on the queue (in case it is empty to immediately allow the user to join)
+							reactingUser.send({embed: { // make sure first that DMs are enabled by this user then add them to the queue
+								color: 4886754,
+								description: `You have been added to the queue. Your position is ${queueData[msg.author.id].userQueue.length + 1}.`
+							}}).then(confirmationMsg => {
+								queueData[msg.author.id].userQueue.push(reactingUser);
+								queueData[msg.author.id].update();
+							}).catch(err => console.log("Failed to add reacting user to queue, aborting: "+err));
+						});
+						joinReactionCollector.on('end', (collected, reason) => {
+							queueData[msg.author.id].acceptingEntries = false;
+							reactionJoinMsg.edit({embed: {
+								author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+								color: 16711907,
+								description: `🛑 Signup for this queue has been closed, and no further entries will be accepted.`
+								}});
+							queueData[msg.author.id].update();
+						});
+					});
+			})
+			.catch(err => { // something went wrong while writing the DM to the creator.
+				msg.channel.send({embed: {
+					author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+					color: 16312092,
+					description: `⚠ I was unable to send you a direct message. Please enable direct messages for this server.`
+				}});
+			});
+	}
+
+	// actual stonks handling ("default case")
 	stonks_value = Number(msg.content.substring(msgPrefix.length));
 	if (isNaN(stonks_value)) return;
 	if (!userData.hasOwnProperty(msg.author.id) || !userData[msg.author.id].timezone) {
