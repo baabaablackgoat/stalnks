@@ -155,6 +155,9 @@ class priceEntry {
 	}
 }
 
+const queueAcceptingMinutes = process.env.DISCORD_STONKS_QUEUEACCEPTINGMINUTES ? process.env.DISCORD_STONKS_QUEUEACCEPTINGMINUTES : 30;
+const queueToSellMinutes = process.env.DISCORD_STONKS_QUEUETOSELLMINUTES ? process.env.DISCORD_STONKS_QUEUEACCEPTINGMINUTES : 7;
+
 class queueEntry {
 	constructor(userId) {
 		this.id = userId; // to allow for self-deletion
@@ -175,11 +178,11 @@ class queueEntry {
 		this.currentUserProcessed = this.userQueue.shift();
 		this.currentUserProcessed.send({embed:{
 			color: 16312092,
-			description: `⏰ It's your turn!\n The Dodo Code is **${this.dodoCode}**.\nYou have **5 minutes** to connect, sell your turnips, and leave the island. After these 5 minutes, the next user in the queue will be automatically messaged.\nShould you be done early, please click 👍 to notify that you're done.\nIf you wish to reconnect later to sell more, click 🔁 to be added to the queue again. *Please note that this also ends your turn!*`
+			description: `⏰ It's your turn!\n The Dodo Code is **${this.dodoCode}**.\nYou have **${queueToSellMinutes} minutes** to connect, sell your turnips, and leave the island. After these 5 minutes, the next user in the queue will be automatically messaged.\nShould you be done early, please click 👍 to notify that you're done.\nIf you wish to reconnect later to sell more, click 🔁 to be added to the queue again. *Please note that this also ends your turn!*`
 		}}).then(msg => {
 			msg.react('👍');
 			msg.react('🔁'); 
-			const doneCollector = msg.createReactionCollector((r,u) => !u.bot && ['👍','🔁'].includes(r.emoji.name), {time: 5*60*1000, max: 1});
+			const doneCollector = msg.createReactionCollector((r,u) => !u.bot && ['👍','🔁'].includes(r.emoji.name), {time: queueToSellMinutes*60*1000, max: 1});
 			doneCollector.on('end', (collected, reason) => {
 				if (reason != 'time' && collected.size != 0 && collected.first().emoji.name == '🔁') {
 					this.userQueue.push(this.currentUserProcessed);
@@ -492,11 +495,11 @@ client.on('message', msg => {
 		msg.author.send({embed: {
 			author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 			color: 16711907,
-			description: `ℹ Please send your Dodo-Code™ as a direct DM to me. Capitalization *does* matter.\nIf you wish to add more information, simply put it in *the same message* seperated from the Dodo-Code™ with a single space. Keep your additional information PG, please.\n **This request will expire in 3 minutes.**`
+			description: `ℹ Please send your Dodo-Code™ as a direct DM to me.\nIf you wish to add more information, simply put it in *the same message* seperated from the Dodo-Code™ with a single space. Keep your additional information PG, please.\nExample: \`A1BC2 Nook's Cranny is in the top left corner!\`\n **This request will expire in 3 minutes.**`
 		}})
 			.then(dmMsg => {
 				// Create a message collector in the DM Channel of the creating user to collect the dodo code and potential additional information.
-				const dodoCodeCollector = dmMsg.channel.createMessageCollector(m => !m.author.bot && validDodoCodeRegex.test(m.content.substring(0,6).trim()), {time: 3*60*1000, max: 1});
+				const dodoCodeCollector = dmMsg.channel.createMessageCollector(m => !m.author.bot && validDodoCodeRegex.test(m.content.substring(0,6).trim().toUpperCase()), {time: 3*60*1000, max: 1});
 				let informationMessage;
 				let informationEmbed;
 				dodoCodeCollector.on('end', (collected, reason) => {
@@ -522,12 +525,12 @@ client.on('message', msg => {
 						}});
 						// Update the new queue entry with the collected message
 						const collectedCreatorMessage = collected.first() ;
-						queueData[msg.author.id].dodoCode = collectedCreatorMessage.content.substring(0,5);
+						queueData[msg.author.id].dodoCode = collectedCreatorMessage.content.substring(0,5).toUpperCase();
 						if (collectedCreatorMessage.content.substring(6).trim().length != 0) queueData[msg.author.id].addlInformation = collectedCreatorMessage.content.substring(6, 1000).trim();
 						
 						// Update the queue info message to contain useful data.
 						if (informationMessage) {
-							informationEmbed.description = `ℹ If you wish to join this queue, react to this message with 📈. **This queue will close in 15 minutes from creation.**`;
+							informationEmbed.description = `ℹ If you wish to join this queue, react to this message with 📈. **This queue will close in ${queueAcceptingMinutes} minutes from creation.**`; // TODO Change this
 							informationEmbed.fields = [
 								{name: "Stalk price", value: priceData.hasOwnProperty(msg.author.id) ? priceData[msg.author.id].price + " Bells" : "Unknown", inline: false},
 								{name: "Additional information", value: queueData[msg.author.id].addlInformation, inline: false}
@@ -543,23 +546,27 @@ client.on('message', msg => {
 				informationEmbed = new Discord.MessageEmbed();
 				informationEmbed.author = {name: msg.member.displayName, icon_url: msg.author.avatarURL()};
 				informationEmbed.color = 16711907;
-				informationEmbed.description = `ℹ A queue is currently being set up for **${priceData.hasOwnProperty(msg.author.id) ? priceData[msg.author.id].price : "an unknown amount of"} Bells.**\n If you wish to join this queue, react to this message with 📈. **This queue will close in 15 minutes.**`;
+				informationEmbed.description = `ℹ A queue is currently being set up for **${priceData.hasOwnProperty(msg.author.id) ? priceData[msg.author.id].price : "an unknown amount of"} Bells.**\n If you wish to join this queue, react to this message with 📈. **This queue will close in ${queueAcceptingMinutes} minutes.**`; // TODO CHange this
+				informationEmbed.timestamp = moment().utc().format();
 				msg.channel.send(informationEmbed).then(reactionJoinMsg => {
 						informationMessage = reactionJoinMsg;
 						reactionJoinMsg.react("📈");
-						const joinReactionCollector = reactionJoinMsg.createReactionCollector((r,u) => !u.bot && u.id != msg.author.id && r.emoji.name == "📈", {time: 15*60*1000}); 
+						const joinReactionCollector = reactionJoinMsg.createReactionCollector((r,u) => !u.bot && u.id != msg.author.id && r.emoji.name == "📈", {time: queueAcceptingMinutes*60*1000}); 
 						joinReactionCollector.on('collect', (reaction, reactingUser) => {
+							//TODO Prevent users from queuing multiple times from that reaction
+
 							//Add the reacting user to the queue and fire an update on the queue (in case it is empty to immediately allow the user to join)
 							reactingUser.send({embed: { // make sure first that DMs are enabled by this user then add them to the queue
 								color: 4886754,
 								description: `You have been added to the queue. Your position is ${queueData[msg.author.id].userQueue.length + 1}.`
 							}}).then(confirmationMsg => {
+								// TODO Allow un-queueing from this.
 								queueData[msg.author.id].userQueue.push(reactingUser);
 								queueData[msg.author.id].update();
 							}).catch(err => console.log("Failed to add reacting user to queue, aborting: "+err));
 						});
 						joinReactionCollector.on('end', (collected, reason) => {
-							queueData[msg.author.id].acceptingEntries = false;
+							if (queueData.hasOwnProperty(msg.author.id)) queueData[msg.author.id].acceptingEntries = false;
 							reactionJoinMsg.edit({embed: {
 								author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 								color: 16711907,
