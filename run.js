@@ -276,6 +276,7 @@ const removeInvoker = 'remove';
 const profileInvoker = 'profile';
 const queueInvoker = 'queue';
 const zoneListURL = "https://gist.github.com/baabaablackgoat/92f7408897f0f7e673d20a1301ca5bea";
+const lowercasedTimezones = moment.tz.names().map(tz => tz.toLowerCase());
 client.on('message', msg => {
 	if (msg.author.bot) return;
 	if (msg.channel.type != "text") return;
@@ -386,27 +387,33 @@ client.on('message', msg => {
 
 	// set/update timezone
 	if (msg.content.startsWith(msgPrefix + timezoneInvoker)) {
-		timezone = msg.content.substring(msgPrefix.length + timezoneInvoker.length);
+		timezone = msg.content.substring(msgPrefix.length + timezoneInvoker.length).trim().replace(" ", "_");
 		if (timezone == 'list') {
 			msg.channel.send({embed: {
 				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 				color: 4886754,
-				description: `📝 Here's a list of all available timezones: \n${zoneListURL}`
+				description: `You can estimate your timezone here:\nhttps://baabaablackgoat.com/getTimezone\n\nAlternatively, here's a list of all available timezones: \n${zoneListURL}`
 			}});
 			return;
 		}
 		if (!moment.tz.names().includes(timezone)) {
-			msg.channel.send({embed: {
-				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
-				color: 16312092,
-				description: `⚠ **${timezone} is not a valid timezone.**`,
-				fields: [
-					{name: "What's my timezone?", value: "You can find your estimated timezone at https://baabaablackgoat.com/getTimezone"},
-					{name: "Usage and notes", value: "If you can, please avoid using timezones that apply for larger regions like `EST`, and instead use `America/New_York` to account for things like daylight savings.\n**Please note that this command is Case-Sensitive, and underscores matter!**"},
-					{name: "All timezones" , value: `Here's a list of all valid timezones: ${zoneListURL}.`}
-				]
-			}});
-			return;
+			// attempt to find the timezone in a lowercased list
+			let tzLowerIndex = lowercasedTimezones.indexOf(timezone);
+			if (tzLowerIndex < 0) { // not retrievable even in lowercase
+				msg.channel.send({embed: {
+					author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+					color: 16312092,
+					description: `⚠ **${timezone} is not a valid timezone.**`,
+					fields: [
+						{name: "What's my timezone?", value: "You can find your estimated timezone at https://baabaablackgoat.com/getTimezone"},
+						{name: "Usage and notes", value: "If you can, please avoid using timezones that apply for larger regions like `EST`, and instead use `America/New_York` to account for things like daylight savings."},
+						{name: "All timezones" , value: `Here's a list of all valid timezones: ${zoneListURL}.`}
+					]
+				}});
+				return;
+			} else {
+				timezone = moment.tz.names()[tzLowerIndex];
+			}
 		}
 		if (userData.hasOwnProperty(msg.author.id)) userData[msg.author.id].timezone = timezone;
 		else userData[msg.author.id] = new userEntry(msg.author.id, timezone, null);
