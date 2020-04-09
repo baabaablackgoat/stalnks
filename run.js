@@ -116,11 +116,12 @@ function updateBestStonks() {
 }
 
 const dismissTimeout = process.env.DISCORD_STONKS_DISMISSMESSAGETIMEOUT ? process.env.DISCORD_STONKS_DISMISSMESSAGETIMEOUT : 5;
+const dismissEmoji = "👌";
 function sendDismissableMessage(channel, data, invokingUserID) {
 	channel.send(data)
 		.then(msg => {
-			msg.react('✅');
-			const dismissCollector = msg.createReactionCollector((r,u) => u.id == invokingUserID && r.emoji.name == '✅', {time: dismissTimeout*60*1000, max: 1});
+			msg.react(dismissEmoji);
+			const dismissCollector = msg.createReactionCollector((r,u) => u.id == invokingUserID && r.emoji.name == dismissEmoji, {time: dismissTimeout*60*1000, max: 1});
 			dismissCollector.on('collect', (r,u) => {
 				msg.delete();
 			});
