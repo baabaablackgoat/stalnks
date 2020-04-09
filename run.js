@@ -115,7 +115,17 @@ function updateBestStonks() {
 	// console.debug(best_stonks);
 }
 
-
+const dismissTimeout = process.env.DISCORD_STONKS_DISMISSMESSAGETIMEOUT ? process.env.DISCORD_STONKS_DISMISSMESSAGETIMEOUT : 5;
+function sendDismissableMessage(channel, data, invokingUserID) {
+	channel.send(data)
+		.then(msg => {
+			msg.react('✅');
+			const dismissCollector = msg.createReactionCollector((r,u) => u.id == invokingUserID && r.emoji.name == '✅', {time: dismissTimeout*60*1000, max: 1});
+			dismissCollector.on('collect', (r,u) => {
+				msg.delete();
+			});
+		});
+}
 
 
 class userEntry { // there doesn't seem to be anything non-experimental for private fields
@@ -284,7 +294,7 @@ client.on('message', msg => {
 
 	// help i've fallen and I can't get up
 	if (msg.content.startsWith(msgPrefix + helpInvoker)) {
-		msg.channel.send({embed: {
+		const helpEmbed = new Discord.MessageEmbed({
 			author: {name: client.user.username, icon_url: client.user.avatarURL()},
 			title: "Hi, I'm stalnks!",
 			description: "I try to keep track of ~~stock~~ stalk prices in Animal Crossing.",
@@ -318,27 +328,30 @@ client.on('message', msg => {
 			footer: {
 				text: "Made with ❤ by baa baa black goat"
 			},
-		}});
+		});
+		sendDismissableMessage(msg.channel, helpEmbed, msg.author.id);
 	}
 	// Show profile
 	if (msg.content.startsWith(msgPrefix + profileInvoker)) {
 		// searched user by mention
 		if (msg.mentions.members.size > 0) { 
 			if (msg.mentions.members.size > 1) {
-				msg.channel.send({embed: {
+				const moreThanOneProfileEmbed = new Discord.MessageEmbed({
 					author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 					color: 16312092,
 					description: `⚠ I can only show one user's profile at a time.`
-				}});
+				});
+				sendDismissableMessage(msg.channel, moreThanOneProfileEmbed, msg.author.id);
 				return;
 			}
 			let target = msg.mentions.members.first();
 			if (!userData.hasOwnProperty(target.id)) {
-				msg.channel.send({embed: {
+				const noMentionedProfileEmbed = new Discord.MessageEmbed({
 					author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 					color: 16312092,
 					description: `⚠ The mentioned user ${target.user.tag} does not have a profile with me.`
-				}});
+				});
+				sendDismissableMessage(msg.channel, noMentionedProfileEmbed, msg.author.id);
 				return;
 			}
 			msg.channel.send(userProfileEmbed(msg.mentions.members.first()));
@@ -353,43 +366,47 @@ client.on('message', msg => {
 					let target = guildMembers.find(guildMember => guildMember.displayName == possibleUsername);
 					if (!target) target = guildMembers.find(guildMember => guildMember.user.username == possibleUsername);
 					if (!target) {
-						msg.channel.send({embed: {
+						const noMemberWithNameFoundEmbed = new Discord.MessageEmbed({
 							author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 							color: 16312092,
 							description: `⚠ I couldn't find a member on this server with this name.`
-						}});
+						});
+						sendDismissableMessage(msg.channel, noMemberWithNameFoundEmbed, msg.author.id);
 						return;
 					}
 					if (!userData.hasOwnProperty(target.id)) {
-						msg.channel.send({embed: {
+						const noProfileEmbed = new Discord.MessageEmbed({
 							author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 							color: 16312092,
 							description: `⚠ The found user ${target.user.tag} does not have a profile with me.`
-						}});
+						});
+						sendDismissableMessage(msg.channel, noProfileEmbed, msg.author.id);
 						return;
 					}
-					msg.channel.send(userProfileEmbed(target));
+					sendDismissableMessage(msg.channel, userProfileEmbed(target), msg.author.id);
 					return;
 				}).catch(err => {
 					console.log("Error while fetching guild members to show other users profile: "+err);
-					msg.channel.send({embed: {
+					const somethingWentWrongMemberFetchEmbed = new Discord.MessageEmbed({
 						author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 						color: 16312092,
 						description: `♿ Something went wrong while fetching the server members. Please try again later.`
-					}});
+					});
+					sendDismissableMessage(msg.channel, somethingWentWrongMemberFetchEmbed, msg.author.id);
 				});
 			return;
 		}
 		// if there's no data, get the profile of the invoking user
 		if (!userData.hasOwnProperty(msg.member.id)) {
-			msg.channel.send({embed: {
+			const noSelfProfileEmbed = new Discord.MessageEmbed({
 				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 				color: 16312092,
 				description: `⚠ You don't have a profile with me!`
-			}});
+			});
+			sendDismissableMessage(msg.channel, noSelfProfileEmbed, msg.author.id);
 			return;
 		}
-		msg.channel.send(userProfileEmbed(msg.member)); // show invoking member profile;
+		sendDismissableMessage(msg.channel, userProfileEmbed(msg.member), msg.author.id); // show invoking member profile;
 		return;
 	}
 
@@ -397,18 +414,19 @@ client.on('message', msg => {
 	if (msg.content.startsWith(msgPrefix + timezoneInvoker)) {
 		timezone = msg.content.substring(msgPrefix.length + timezoneInvoker.length).trim().replace(" ", "_");
 		if (timezone == 'list') {
-			msg.channel.send({embed: {
+			const timezoneListEmbed = new Discord.MessageEmbed({
 				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 				color: 4886754,
 				description: `You can estimate your timezone here:\nhttps://baabaablackgoat.com/getTimezone\n\nAlternatively, here's a list of all available timezones: \n${zoneListURL}`
-			}});
+			});
+			sendDismissableMessage(msg.channel, timezoneListEmbed, msg.author.id);
 			return;
 		}
 		if (!moment.tz.names().includes(timezone)) {
 			// attempt to find the timezone in a lowercased list
 			let tzLowerIndex = lowercasedTimezones.indexOf(timezone);
 			if (tzLowerIndex < 0) { // not retrievable even in lowercase
-				msg.channel.send({embed: {
+				const invalidTimezoneEmbed = new Discord.MessageEmbed({
 					author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 					color: 16312092,
 					description: `⚠ **${timezone} is not a valid timezone.**`,
@@ -417,7 +435,8 @@ client.on('message', msg => {
 						{name: "Usage and notes", value: "If you can, please avoid using timezones that apply for larger regions like `EST`, and instead use `America/New_York` to account for things like daylight savings."},
 						{name: "All timezones" , value: `Here's a list of all valid timezones: ${zoneListURL}.`}
 					]
-				}});
+				});
+				sendDismissableMessage(msg.channel, invalidTimezoneEmbed, msg.author.id);
 				return;
 			} else {
 				timezone = moment.tz.names()[tzLowerIndex];
@@ -426,17 +445,19 @@ client.on('message', msg => {
 		if (userData.hasOwnProperty(msg.author.id)) userData[msg.author.id].timezone = timezone;
 		else userData[msg.author.id] = new userEntry(msg.author.id, timezone, null);
 		if (inaccurateTimezones.includes(timezone)) {
-			msg.channel.send({embed: {
+			const confirmDangerousTimezoneSetEmbed = new Discord.MessageEmbed({
 				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 				color: 4289797,
 				description: `✅ Your timezone is now set to ${timezone}. It should be ${moment().tz(timezone).format("dddd, MMMM Do YYYY, h:mm:ss a")}.\n**Please note that this timezone does NOT account for things like Daylight Savings.** It is highly recommended to switch to a timezone involving your location.`
-			}});
+			});
+			sendDismissableMessage(msg.channel, confirmDangerousTimezoneSetEmbed, msg.author.id);
 		} else {
-			msg.channel.send({embed: {
+			const confirmTimezoneSetEmbed = new Discord.MessageEmbed({
 				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 				color: 4289797,
 				description: `✅ Your timezone is now set to ${timezone}. It should be ${moment().tz(timezone).format("dddd, MMMM Do YYYY, h:mm:ss a")}`
-			}});
+			});
+			sendDismissableMessage(msg.channel, confirmTimezoneSetEmbed, msg.author.id);
 		}
 		return;
 	}
@@ -447,44 +468,49 @@ client.on('message', msg => {
 		const fcRegex = /^SW-\d{4}-\d{4}-\d{4}$/;
 		if (['remove', 'delete', 'no'].includes(fc)) {
 			if (!userData.hasOwnProperty(msg.author.id) || !userData[msg.author.id].friendcode) {
-				msg.channel.send({embed: {
+				const noFriendcodeFoundEmbed = new Discord.MessageEmbed({
 					author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 					color: 13632027,
-					description: `⚠ No friendcode associated with your user was found .`
-				}});
+					description: `⚠ No friendcode associated with your user was found.`
+				});
+				sendDismissableMessage(msg.channel, noFriendcodeFoundEmbed, msg.author.id);
 				return;
 			}
 			userData[msg.author.id].friendcode = null;
-			msg.channel.send({embed: {
+			const friendcodeRemovedEmbed = new Discord.MessageEmbed({
 				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 				color: 13632027,
 				description: `🚮 Your friend code has been removed.`
-			}});
+			});
+			sendDismissableMessage(msg.channel, friendcodeRemovedEmbed, msg.author.id);
 			return;
 		}
 		if (!fcRegex.test(fc)) {
-			msg.channel.send({embed: {
+			const invalidFriendcodeEmbed = new Discord.MessageEmbed({
 				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 				color: 16312092,
 				description: `⚠ Your supplied friend code is invalid. Valid formatting: \`SW-XXXX-XXXX-XXXX\``
-			}});
+			});
+			sendDismissableMessage(msg.channel, invalidFriendcodeEmbed, msg.author.id);
 			return;
 		}
 		if (userData.hasOwnProperty(msg.author.id)) {
 			userData[msg.author.id].friendcode = fc;
-			msg.channel.send({embed: {
+			const friendcodeAddedEmbed = new Discord.MessageEmbed({
 				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 				color: 4289797,
 				description: `✅ Your friendcode has been added to your profile.`
-			}});
+			});
+			sendDismissableMessage(msg.channel, friendcodeAddedEmbed, msg.author.id);
 			return;
 		} else {
 			userData[msg.author.id] = new userEntry(msg.author.id, null, fc);
-			msg.channel.send({embed: {
+			const profileWithFriendcodeCreatedEmbed = new Discord.MessageEmbed({
 				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 				color: 4289797,
 				description: `✅ Your profile with the associated friend code has been created.`
-			}});
+			});
+			sendDismissableMessage(msg.channel, profileWithFriendcodeCreatedEmbed, msg.author.id);
 			return;
 		}
 	}
@@ -504,11 +530,12 @@ client.on('message', msg => {
 	const validDodoCodeRegex = /(\d|[A-HJ-NP-Z]){5}/;
 	if (msg.content.startsWith(msgPrefix + queueInvoker)) {
 		if (queueData.hasOwnProperty(msg.author.id)) { // prevent two queues from one user
-			msg.channel.send({embed: {
+			const alreadyExistingQueueEmbed = new Discord.MessageEmbed({
 				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 				color: 16312092,
 				description: `♿ You seem to already have a running queue!`
-			}});
+			});
+			sendDismissableMessage(msg.channel, alreadyExistingQueueEmbed, msg.author.id);
 			return;
 		}
 		// Create a new queue
@@ -624,28 +651,31 @@ client.on('message', msg => {
 	stonks_value = Number(msg.content.substring(msgPrefix.length));
 	if (isNaN(stonks_value)) return;
 	if (!userData.hasOwnProperty(msg.author.id) || !userData[msg.author.id].timezone) {
-		msg.channel.send({embed: {
+		const registerTimezoneFirstEmbed = new Discord.MessageEmbed({
 			author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 			color: 16312092,
 			description: `⚠ Please register your timezone with me by using \`${msgPrefix + timezoneInvoker}timezoneCode\` first.`
-		}});
+		});
+		sendDismissableMessage(msg.channel, registerTimezoneFirstEmbed, msg.author.id);
 		return;
 	}
 	let localTime = moment().tz(userData[msg.author.id].timezone);
 	if (localTime.weekday() == 7) {
-		msg.channel.send({embed: {
+		const sundayEmbed = new Discord.MessageEmbed({
 			author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 			color: 16312092,
 			description: `⚠ It is Sunday on your island.`
-		}});
+		});
+		sendDismissableMessage(msg.channel, sundayEmbed, msg.author.id);
 		return;
 	}
 	if (stonks_value < 0 || stonks_value > 1000 || stonks_value % 1 != 0) {
-		msg.channel.send({embed: {
+		const invalidStalkPriceEmbed = new Discord.MessageEmbed({
 			author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 			color: 16312092,
 			description: `⚠ Invalid stalk price specified.`
-		}});
+		});
+		sendDismissableMessage(msg.channel, invalidStalkPriceEmbed, msg.author.id);
 		return;
 	}
 	if (priceData.hasOwnProperty(msg.author.id)) {
