@@ -128,6 +128,17 @@ function sendDismissableMessage(channel, data, invokingUserID) {
 		});
 }
 
+const elevatedPermissionList = ["BAN_MEMBERS", "MANAGE_MESSAGES"];
+function hasElevatedPermissions(member) {
+	if (process.env.DISCORD_STONKS_BOTOWNERID && process.env.DISCORD_STONKS_BOTOWNERID == member.id) return true;
+	for (let i=0; i < elevatedPermissionList.length; i++){
+		if (member.hasPermission(elevatedPermissionList[i])) {
+			return true;
+		}
+	}
+	return false;
+}
+
 
 class userEntry { // there doesn't seem to be anything non-experimental for private fields
 	constructor(id, timezone, friendcode) {
@@ -523,7 +534,123 @@ client.on('message', msg => {
 	}
 	// remove a stonk
 	if (msg.content.startsWith(msgPrefix + removeInvoker)) {
-		msg.channel.send("i'll add this soon promised");
+		if (msg.mentions.members.size > 0) {
+			// Check if the user has elevated permissions to remove other entries
+			if (!hasElevatedPermissions(msg.member)) {
+				const noPermissionRemoveEmbed = new Discord.MessageEmbed({
+					author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+					color: 16312092,
+					description: `⚠ You don't have permission to remove other users' entries.`
+				});
+				// THESE MESSAGES ARE PURPOSELY NOT DISMISSABLE TO BLATANTLY SHOW TAMPER ATTEMPTS.
+				msg.channel.send(noPermissionRemoveEmbed);
+				return;
+			}
+			if (msg.mentions.members.size > 1) {
+				const tooManyMentionsEmbed = new Discord.MessageEmbed({
+					author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+					color: 16312092,
+					description: `⚠ You've mentioned too many people! I can only remove one price at a time.`
+				});
+				sendDismissableMessage(msg.channel, tooManyMentionsEmbed, msg.author.id);
+				return;
+			}
+			
+			// Removing the other users' listing
+			let target = msg.mentions.members.first();
+			if (!priceData.hasOwnProperty(target.id)) {
+				const noOtherUserPriceEmbed = new Discord.MessageEmbed({
+					author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+					color: 16312092,
+					description: `⚠ ${target.user.tag} does not seem to have a registered price.`
+				});
+				sendDismissableMessage(msg.channel, noOtherUserPriceEmbed, msg.author.id);
+				return;
+			}
+			delete priceData[target.id];
+			sendBestStonksToUpdateChannel();
+			const removedOtherUserPriceEmbed = new Discord.MessageEmbed({
+				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+				color: 4289797,
+				description: `🗑 The listing of ${target.user.tag} has been removed.`
+			});
+			sendDismissableMessage(msg.channel, removedOtherUserPriceEmbed, msg.author.id);
+			return;
+		}
+		let possibleUsername = msg.content.substring(msgPrefix.length + removeInvoker.length).trim();
+		if (possibleUsername.length > 0) {
+			// Check if the user has elevated permissions to remove other entries
+			if (!hasElevatedPermissions(msg.member)) {
+				const noPermissionRemoveEmbed = new Discord.MessageEmbed({
+					author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+					color: 16312092,
+					description: `⚠ You don't have permission to remove other users' entries.`
+				});
+				// THESE MESSAGES ARE PURPOSELY NOT DISMISSABLE TO BLATANTLY SHOW TAMPER ATTEMPTS.
+				msg.channel.send(noPermissionRemoveEmbed);
+				return;
+			}
+			msg.guild.members.fetch()
+				.then(guildMembers => {
+					let target = guildMembers.find(guildMember => guildMember.displayName == possibleUsername);
+					if (!target) target = guildMembers.find(guildMember => guildMember.user.username == possibleUsername);
+					if (!target) {
+						const noMemberWithNameFoundEmbed = new Discord.MessageEmbed({
+							author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+							color: 16312092,
+							description: `⚠ I couldn't find a member on this server with this name.`
+						});
+						sendDismissableMessage(msg.channel, noMemberWithNameFoundEmbed, msg.author.id);
+						return;
+					}
+					// Removing the other users' listing
+					if (!priceData.hasOwnProperty(target.id)) {
+						const noOtherUserPriceEmbed = new Discord.MessageEmbed({
+							author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+							color: 16312092,
+							description: `⚠ ${target.user.tag} does not seem to have a registered price.`
+						});
+						sendDismissableMessage(msg.channel, noOtherUserPriceEmbed, msg.author.id);
+						return;
+					}
+					delete priceData[target.id];
+					sendBestStonksToUpdateChannel();
+					const removedOtherUserPriceEmbed = new Discord.MessageEmbed({
+						author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+						color: 4289797,
+						description: `🗑 The listing of ${target.user.tag} has been removed.`
+					});
+					sendDismissableMessage(msg.channel, removedOtherUserPriceEmbed, msg.author.id);
+					return;
+				}).catch(err => {
+					console.log("Error while trying to remove a listing from another user: "+err);
+					const somethingWentWrongMemberFetchEmbed = new Discord.MessageEmbed({
+						author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+						color: 16312092,
+						description: `♿ Something went wrong while fetching the server members. Please try again later.`
+					});
+					sendDismissableMessage(msg.channel, somethingWentWrongMemberFetchEmbed, msg.author.id);
+				});
+			return;
+		}
+		// Removing your own listing
+		if (!priceData.hasOwnProperty(msg.author.id)) {
+			const noSelfListingEmbed = new Discord.MessageEmbed({
+				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+				color: 16312092,
+				description: `⚠ You currently don't have any active listings.`
+			});
+			sendDismissableMessage(msg.channel, noSelfListingEmbed, msg.author.id);
+			return;
+		}
+		delete priceData[msg.author.id];
+		sendBestStonksToUpdateChannel();
+		const selfListingRemovedEmbed = new Discord.MessageEmbed({
+			author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+			color: 4289797,
+			description: `🗑 Your listing has been removed.`
+		});
+		sendDismissableMessage(msg.channel, selfListingRemovedEmbed, msg.author.id);
 		return;
 	}
 
