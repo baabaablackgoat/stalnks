@@ -391,7 +391,7 @@ client.on('message', msg => {
 			msg.channel.send({embed: {
 				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 				color: 4886754,
-				description: `📝 Here's a list of all available timezones: https://gist.github.com/baabaablackgoat/92f7408897f0f7e673d20a1301ca5bea`
+				description: `📝 Here's a list of all available timezones: \n${zoneListURL}`
 			}});
 			return;
 		}
@@ -399,7 +399,12 @@ client.on('message', msg => {
 			msg.channel.send({embed: {
 				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 				color: 16312092,
-				description: `⚠ ${timezone} is not a valid timezone.`
+				description: `⚠ **${timezone} is not a valid timezone.**`,
+				fields: [
+					{name: "What's my timezone?", value: "You can find your estimated timezone at https://baabaablackgoat.com/getTimezone"},
+					{name: "Usage and notes", value: "If you can, please avoid using timezones that apply for larger regions like `EST`, and instead use `America/New_York` to account for things like daylight savings.\n**Please note that this command is Case-Sensitive, and underscores matter!**"},
+					{name: "All timezones" , value: `Here's a list of all valid timezones: ${zoneListURL}.`}
+				]
 			}});
 			return;
 		}

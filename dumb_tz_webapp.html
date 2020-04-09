@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<style>
+			@import url('https://fonts.googleapis.com/css2?family=Roboto&display=swap');
+			html, body {
+				background-color: #2C2F33;
+				color: white;
+				font-family: "Roboto", "Helvetica", "Arial", sans-serif;
+				text-align: center;
+				font-size: 1.1em;
+			}
+			#command_code{
+				font-family: "Consolas", monospace;
+				border: 1px solid white;
+				padding: 4px;
+				border-radius: 3px;
+				background-color: #23272A;
+			}
+			#copier {
+				display: inline-block;
+				border: 1px solid white;
+				border-radius: 3px;
+				padding: 5px;
+				min-width: 250px;
+			}
+			#channel {
+				padding: 2px;
+				border-radius: 2px;
+				background-color: rgba(114, 137, 218, 0.3);
+				color: rgb(134, 157, 238);
+			}
+			.success {
+				background-color: #373;
+			}
+			.bold {
+				font-weight: 700;
+			}
+		</style>
+		<script src="https://momentjs.com/downloads/moment.js"></script>
+		<script src="https://momentjs.com/downloads/moment-timezone-with-data.js"></script>
+	</head>
+	<body>
+		<p id='think'>I think your timezone is <span id="timezone_code_1" class="bold">Unknown</span></p>
+		<p id='timedisplay'>It should be <span id="local_time" class="bold">Unknown</span></p>
+		<p id='commanddisplay'>Use this command in <span id='channel'>#the-joan-zone</span>: <span id='command_code' onclick=copyToClipboard()>*timezone <span id="timezone_code_2">Unknown</span></span></p>
+		<div id='copier' onclick=copyToClipboard()>Copy command to clipboard</div>
+		<!-- script starts here-->
+		<script>
+			var timezone = moment.tz.guess();
+			var currentTime;
+			document.getElementById("timezone_code_1").innerHTML = timezone;
+			document.getElementById("timezone_code_2").innerHTML = timezone;
+			function updateTime() {
+				currentTime = moment.tz(timezone);
+				document.getElementById("local_time").innerHTML = currentTime.format("dddd, MMMM Do YYYY, h:mm:ss a");
+			}
+			var updateTimeInterval = setInterval(updateTime, 1000);
+
+			function copyToClipboard() {
+				navigator.clipboard.writeText(`*timezone ${timezone}`)
+				.then(()=>{
+					target = document.getElementById("copier");
+					target.innerHTML = "Copied to clipboard";
+					target.className = "success";
+					setTimeout(()=>{
+						target = document.getElementById("copier");
+						target.innerHTML = "Copy command to clipboard";
+						target.className = "";
+					}, 2000)
+				})
+				.catch(()=>{
+					console.log("copying failed");
+				});
+			}
+		</script>
+	</body>
+</html>
