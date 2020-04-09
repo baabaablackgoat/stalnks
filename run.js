@@ -177,8 +177,9 @@ class queueEntry {
 		if (!this.dodoCode) return;
 		this.currentUserProcessed = this.userQueue.shift();
 		this.currentUserProcessed.send({embed:{
+			title: "⏰ It's your turn!",
 			color: 16312092,
-			description: `⏰ It's your turn!\n The Dodo Code is **${this.dodoCode}**.\nYou have **${queueToSellMinutes} minutes** to connect, sell your turnips, and leave the island. After these 5 minutes, the next user in the queue will be automatically messaged.\nShould you be done early, please click 👍 to notify that you're done.\nIf you wish to reconnect later to sell more, click 🔁 to be added to the queue again. *Please note that this also ends your turn!*`
+			description: `The Dodo Code is **${this.dodoCode}**.\nYou have **${queueToSellMinutes} minutes** to connect, sell your turnips, and leave the island.\nOnce your timeslot expires, the next user in the queue will be automatically messaged.\nShould you be done early, please click 👍 to notify that you're done.\nIf you wish to reconnect later to sell more, click 🔁 to be added to the queue again. *Please note that this also ends your turn!*`
 		}}).then(msg => {
 			msg.react('👍');
 			msg.react('🔁'); 
@@ -187,8 +188,8 @@ class queueEntry {
 				if (reason != 'time' && collected.size != 0 && collected.first().emoji.name == '🔁') {
 					this.userQueue.push(this.currentUserProcessed);
 					msg.channel.send({embed:{
-						color: 4886754,
-						description: `🔁 You have been added back into the queue. Your turn is over for now.`
+						color: 16711907,
+						description: `🔁 You have been added back into the queue at position ${this.userQueue.length}. Your turn is over for now.`
 					}});
 				} else {
 					msg.channel.send({embed:{
@@ -553,16 +554,30 @@ client.on('message', msg => {
 						reactionJoinMsg.react("📈");
 						const joinReactionCollector = reactionJoinMsg.createReactionCollector((r,u) => !u.bot && u.id != msg.author.id && r.emoji.name == "📈", {time: queueAcceptingMinutes*60*1000}); 
 						joinReactionCollector.on('collect', (reaction, reactingUser) => {
-							//TODO Prevent users from queuing multiple times from that reaction
-
+							//Prevent users from queuing up multiple times 
+							if (queueData[msg.author.id].userQueue.filter(e => e.id == reactingUser.id).length > 0) return;
 							//Add the reacting user to the queue and fire an update on the queue (in case it is empty to immediately allow the user to join)
 							reactingUser.send({embed: { // make sure first that DMs are enabled by this user then add them to the queue
-								color: 4886754,
-								description: `You have been added to the queue. Your position is ${queueData[msg.author.id].userQueue.length + 1}.`
+								color: 16711907,
+								description: `You have been added to the queue. Your position is ${queueData[msg.author.id].userQueue.length + 1}.\nIf you wish to leave the queue, click 👋.`
 							}}).then(confirmationMsg => {
-								// TODO Allow un-queueing from this.
+								// Add user to queue and update the queue
 								queueData[msg.author.id].userQueue.push(reactingUser);
 								queueData[msg.author.id].update();
+								// Users unqueueing from the queue
+								confirmationMsg.react('👋');
+								const leaveQueueCollector = confirmationMsg.createReactionCollector((r,u) => !u.bot && r.emoji.name == '👋', {time: queueAcceptingMinutes*60*1000, max: 1});
+								leaveQueueCollector.on('collect', (leaveR, leavingUser) => {
+									if (!queueData.hasOwnProperty(msg.author.id)) return; // just in case the queue was already deleted
+									let foundUserIndex = queueData[msg.author.id].userQueue.findIndex(queue_u => queue_u.id == leavingUser.id);
+									if (foundUserIndex >= 0) {
+										queueData[msg.author.id].userQueue.splice(foundUserIndex, 1);
+										leavingUser.send({embed: { // make sure first that DMs are enabled by this user then add them to the queue
+											color: 16711907,
+											description: `You have been removed from the queue.`
+										}});
+									}
+								});
 							}).catch(err => console.log("Failed to add reacting user to queue, aborting: "+err));
 						});
 						joinReactionCollector.on('end', (collected, reason) => {
