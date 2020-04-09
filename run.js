@@ -285,7 +285,7 @@ client.on('message', msg => {
 	// help i've fallen and I can't get up
 	if (msg.content.startsWith(msgPrefix + helpInvoker)) {
 		msg.channel.send({embed: {
-			author: {name: client.user.displayName, icon_url: client.user.avatarURL()},
+			author: {name: client.user.username, icon_url: client.user.avatarURL()},
 			title: "Hi, I'm stalnks!",
 			description: "I try to keep track of ~~stock~~ stalk prices in Animal Crossing.",
 			color: 16711907,
@@ -299,12 +299,20 @@ client.on('message', msg => {
 					value: `To note your current stalk price, just write ${msgPrefix}xxx and I will keep track of your turnip prices. \nYou must be registered to use this!`,
 				},
 				{
-					name: "All commands",
-					value: `\`${msgPrefix + timezoneInvoker}\`\t Change your timezone, or show all timezones with \`${msgPrefix + timezoneInvoker}list\`\n\`${msgPrefix + fcInvoker}SW-XXXX-XXXX-XXXX\`\t Set your Switch friendcode on your profile \n\`${msgPrefix + listInvoker}\`\t Show the best current stonks\n\`${msgPrefix + helpInvoker}\`\t Shows this help menu!`,
+					name: "The queuing system",
+					value: `To let you control the flow of players on your island, I can provide you with a simple queuing system! Just type \`${msgPrefix+queueInvoker}\`, and I will talk you through the rest in DMs.\nIf you want to join a queue, just click the reaction I will post beneath it!`
 				},
 				{
-					name: "Available timezones",
-					value: `Here's a list of all available timezones:\n${zoneListURL}`,
+					name: "All commands",
+					value: `\`${msgPrefix + timezoneInvoker}\`\t Change your timezone, or show all timezones with \`${msgPrefix + timezoneInvoker}list\`\n\`${msgPrefix + fcInvoker}SW-XXXX-XXXX-XXXX\`\t Set your Switch friendcode on your profile \n\`${msgPrefix + listInvoker}\`\t Show the best current stonks\n\`${msgPrefix + queueInvoker}\`\t Create a queue!\n\`${msgPrefix + helpInvoker}\`\t Shows this help menu!`,
+				},
+				{
+					name: "Finding your timezone",
+					value: `To get your timezone, visit https://baabaablackgoat.com/getTimezone\nAlternatively, here's a list of all available timezones:\n${zoneListURL}`,
+				},
+				{
+					name: "GitHub",
+					value: `My code is always available on GitHub:\nhttps://github.com/baabaablackgoat/stalnks/\nFeel free to create issues, fork, or just judge me silently for my bad code!`
 				}
 			],
 			footer: {
