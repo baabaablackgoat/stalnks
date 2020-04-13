@@ -436,7 +436,7 @@ client.on('message', msg => {
 		}
 		if (!moment.tz.names().includes(timezone)) {
 			// attempt to find the timezone in a lowercased list
-			let tzLowerIndex = lowercasedTimezones.indexOf(timezone);
+			let tzLowerIndex = lowercasedTimezones.indexOf(timezone.toLowerCase());
 			if (tzLowerIndex < 0) { // not retrievable even in lowercase
 				const invalidTimezoneEmbed = new Discord.MessageEmbed({
 					author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
