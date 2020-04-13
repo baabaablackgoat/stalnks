@@ -47,7 +47,7 @@
 		<div id='copier' onclick=copyToClipboard()>Copy command to clipboard</div>
 		<!-- script starts here-->
 		<script>
-			var timezone = moment.tz.guess();
+			var timezone = moment.tz.guess(true);
 			var currentTime;
 			document.getElementById("timezone_code_1").innerHTML = timezone;
 			document.getElementById("timezone_code_2").innerHTML = timezone;
