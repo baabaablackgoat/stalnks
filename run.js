@@ -159,7 +159,17 @@ class userEntry { // there doesn't seem to be anything non-experimental for priv
 		this.id = id; // probably redundant
 		this.timezone = timezone;
 		this.friendcode = friendcode;
-		this.weekPrices = Array(13).fill('');
+		this.weekUpdated = moment().tz(timezone).week();
+		this._weekPrices = Array(13).fill('');
+	}
+	get weekPrices() {
+		let currWeek = moment().tz(this.timezone).week()
+		if (this.weekUpdated != currWeek) {
+			console.log(`Cleared week price data for ${this.id}`)
+			this._weekPrices = Array(13).fill('');
+		}
+		this.weekUpdated = currWeek;
+		return this._weekPrices;
 	}
 }
 
