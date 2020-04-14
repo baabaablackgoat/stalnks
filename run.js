@@ -3,6 +3,11 @@ const moment = require('moment-timezone');
 const Discord = require('discord.js');
 const client = new Discord.Client();
 
+// ensure data exists
+if (!fs.existsSync('./data')){
+	fs.mkdirSync('./data');
+}
+
 // timezone & friend code data 
 const userDataPath = './data/userData.json';
 let userData = {}; // this shall store the timezones of our users
@@ -65,6 +70,15 @@ fs.readFile(userDataPath, 'utf8', (err, data) => {
 	});
 });
 
+function getEnv(var_name, otherwise=undefined) {
+	if (process.env[var_name]) {
+		return process.env[var_name]
+	} else if (otherwise) {
+		return otherwise
+	} else {
+		throw `${var_name} not set in environment`
+	}
+}
 
 // Save data in case of restarts or emergencies so that existing data won't be lost
 function saveData() {
@@ -115,7 +129,7 @@ function updateBestStonks() {
 	// console.debug(best_stonks);
 }
 
-const dismissTimeout = process.env.DISCORD_STONKS_DISMISSMESSAGETIMEOUT ? process.env.DISCORD_STONKS_DISMISSMESSAGETIMEOUT : 5;
+const dismissTimeout = parseInt(getEnv('DISCORD_STONKS_DISMISSMESSAGETIMEOUT', '5'));
 const dismissEmoji = "👌";
 function sendDismissableMessage(channel, data, invokingUserID) {
 	channel.send(data)
@@ -130,7 +144,7 @@ function sendDismissableMessage(channel, data, invokingUserID) {
 
 const elevatedPermissionList = ["BAN_MEMBERS", "MANAGE_MESSAGES"];
 function hasElevatedPermissions(member) {
-	if (process.env.DISCORD_STONKS_BOTOWNERID && process.env.DISCORD_STONKS_BOTOWNERID == member.id) return true;
+	if (getEnv('DISCORD_STONKS_BOTOWNERID') == member.id) return true;
 	for (let i=0; i < elevatedPermissionList.length; i++){
 		if (member.hasPermission(elevatedPermissionList[i])) {
 			return true;
@@ -177,8 +191,8 @@ class priceEntry {
 	}
 }
 
-const queueAcceptingMinutes = process.env.DISCORD_STONKS_QUEUEACCEPTINGMINUTES ? process.env.DISCORD_STONKS_QUEUEACCEPTINGMINUTES : 30;
-const queueToSellMinutes = process.env.DISCORD_STONKS_QUEUETOSELLMINUTES ? process.env.DISCORD_STONKS_QUEUEACCEPTINGMINUTES : 7;
+const queueAcceptingMinutes = parseInt(getEnv('DISCORD_STONKS_QUEUEACCEPTINGMINUTES', '30'));
+const queueToSellMinutes = parseInt(getEnv('DISCORD_STONKS_QUEUETOSELLMINUTES', '7'))
 
 class queueEntry {
 	constructor(userId) {
@@ -831,9 +845,10 @@ client.on('ready', () => {
 	console.log(`stalnks. logged in as ${client.user.tag}`);
 
 	// get stuff about the channel and the possibly editable message
+	updateChannelID = getEnv('DISCORD_STONKS_UPDATECHANNELID', false);
 
-	if (process.env.DISCORD_STONKS_UPDATECHANNELID) {
-		client.channels.fetch(process.env.DISCORD_STONKS_UPDATECHANNELID)
+	if (updateChannelID) {
+		client.channels.fetch(updateChannelID)
 			.then(channel => {
 				updateChannel = channel;
 				channel.messages.fetch({limit:10})
@@ -873,4 +888,4 @@ client.on('ready', () => {
 	}	
 });
 
-client.login(process.env.DISCORD_STONKS_TOKEN);
+client.login(getEnv('DISCORD_STONKS_TOKEN'));
