@@ -159,6 +159,7 @@ class userEntry { // there doesn't seem to be anything non-experimental for priv
 		this.id = id; // probably redundant
 		this.timezone = timezone;
 		this.friendcode = friendcode;
+		this.weekPrices = Array(13).fill('');
 	}
 }
 
@@ -182,11 +183,29 @@ class priceEntry {
 		return `${Math.floor((timeLeft / 3600000) % 24)}h${Math.floor((timeLeft / 60000) % 60)}m`;
 	}
 
+	getPriceInterval() {
+		// Sunday:      0
+		// Monday AM:   1
+		// Monday PM:   2
+		// Tuesday AM:  3
+		// ...
+		// Saturday AM: 11
+		// Saturday PM: 12
+		let user_tz = userData[this.user.id].timezone
+		let m = moment().tz(user_tz)
+		if (m.day() == 0) {
+			return 0;
+		} else {
+			return m.day() * 2 - (m.hour() < 12)
+		}
+	}
+
 	updatePrice(price) {
 		if (isNaN(price) || price < 0 || price > 1000 || price % 1 != 0) throw new RangeError("Supplied price "+price+" is invalid");
 		let now_tz = moment().tz(userData[this.user.id].timezone); // the current time, adjusted with the timezone of the user.
 		if (now_tz.weekday() == 7) throw new RangeError("Cannot create offers on a sunday - turnips arent sold on sundays.");
 		this.price = price;
+		this.user.weekPrices[this.getPriceInterval()] = price;
 		this.expiresAt = now_tz.hour() < 12 ? now_tz.clone().hour(12).minute(0).second(0).millisecond(0) : now_tz.clone().hour(24).minute(0).second(0).millisecond(0);
 	}
 }
@@ -311,6 +330,7 @@ const listInvoker = 'stonks';
 const removeInvoker = 'remove';
 const profileInvoker = 'profile';
 const queueInvoker = 'queue';
+const weekInvoker = 'week';
 const zoneListURL = "https://gist.github.com/baabaablackgoat/92f7408897f0f7e673d20a1301ca5bea";
 const lowercasedTimezones = moment.tz.names().map(tz => tz.toLowerCase());
 client.on('message', msg => {
@@ -741,7 +761,7 @@ client.on('message', msg => {
 				msg.channel.send(informationEmbed).then(reactionJoinMsg => {
 						informationMessage = reactionJoinMsg;
 						reactionJoinMsg.react("📈");
-						const joinReactionCollector = reactionJoinMsg.createReactionCollector((r,u) => !u.bot && u.id != msg.author.id && r.emoji.name == "📈", {time: queueAcceptingMinutes*60*1000}); 
+						const joinReactionCollector = reactionJoinMsg.createReactionCollector((r,u) => !u.bot && u.id != msg.author.id && r.emoji.name == "📈", {time: queueAcceptingMinutes*60*1000});
 						joinReactionCollector.on('collect', (reaction, reactingUser) => {
 							//Prevent users from queuing up multiple times 
 							if (queueData[msg.author.id].userQueue.filter(e => e.id == reactingUser.id).length > 0) return;
@@ -787,6 +807,35 @@ client.on('message', msg => {
 					description: `⚠ I was unable to send you a direct message. Please enable direct messages for this server.`
 				}});
 			});
+	}
+
+	if (msg.content.startsWith(msgPrefix + weekInvoker)) {
+		if (!userData.hasOwnProperty(msg.author.id)) { // check if profile exists
+			const noProfileWeekStats = new Discord.MessageEmbed({
+				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+				color: 16312092,
+				description: `⚠ You didn't register a profile with me so far.`
+			});
+			sendDismissableMessage(msg.channel, noProfileWeekStats, msg.author.id);
+			return;
+		}
+		let weekPrices = userData[msg.author.id].weekPrices;
+		const weekStatEmbed = new Discord.MessageEmbed({
+			author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+			title: "Your week's (registered) prices",
+			color: 16711907,
+			fields: [ // holy shit this is ugly please make it stop and beautiful
+				{name: "Purchased for", value: `${weekPrices[0] ? weekPrices[0] : "???"} Bells`},
+				{name: "Mon", value: `${weekPrices[1] ? weekPrices[1] : "???"} / ${weekPrices[2] ? weekPrices[2] : "???"} Bells`, inline: true},
+				{name: "Tue", value: `${weekPrices[3] ? weekPrices[3] : "???"} / ${weekPrices[4] ? weekPrices[4] : "???"} Bells`, inline: true},
+				{name: "Wed", value: `${weekPrices[5] ? weekPrices[5] : "???"} / ${weekPrices[6] ? weekPrices[6] : "???"} Bells`, inline: true},
+				{name: "Thu", value: `${weekPrices[7] ? weekPrices[7] : "???"} / ${weekPrices[8] ? weekPrices[8] : "???"} Bells`, inline: true},
+				{name: "Fri", value: `${weekPrices[9] ? weekPrices[9] : "???"} / ${weekPrices[10] ? weekPrices[10] : "???"} Bells`, inline: true},
+				{name: "Sat", value: `${weekPrices[11] ? weekPrices[11] : "???"} / ${weekPrices[12] ? weekPrices[12] : "???"} Bells`, inline: true},
+				{name: "turnipprophet.io - Predictions link", value: "**" + 'https://turnipprophet.io?prices=' + weekPrices.join('.') + "**\nPlease note that turnipprophet.io was NOT made by me, and leads to said external site. I don't have control over the things shown there, only about the price input.", inline: false}
+			]
+		});
+		sendDismissableMessage(msg.channel, weekStatEmbed, msg.author.id);
 	}
 
 	// actual stonks handling ("default case")
