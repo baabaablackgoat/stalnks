@@ -3,7 +3,12 @@ const moment = require('moment-timezone');
 const Discord = require('discord.js');
 const client = new Discord.Client();
 
-// timezone & friend code data 
+// ensure data exists
+if (!fs.existsSync('./data')){
+	fs.mkdirSync('./data');
+}
+
+// timezone & friend code data
 const userDataPath = './data/userData.json';
 let userData = {}; // this shall store the timezones of our users
 const priceDataPath = './data/priceData.json';
@@ -25,7 +30,7 @@ fs.readFile(userDataPath, 'utf8', (err, data) => {
 			rawData = JSON.parse(data);
 			for (let key in rawData) {
 				try {
-					userData[key] = new userEntry(key, rawData[key].timezone, rawData[key].friendcode);
+					userData[key] = userEntry.fromRaw(key, rawData[key]);
 				} catch (entryErr) {
 					console.log("Non-fatal error raised while reading userData from JSON: "+entryErr);
 				}
@@ -52,7 +57,7 @@ fs.readFile(userDataPath, 'utf8', (err, data) => {
 				rawData = JSON.parse(data);
 				for (let key in rawData) {
 					try {
-						priceData[key] = new priceEntry(key, rawData[key].price, rawData[key].expiresAt);
+						priceData[key] = priceEntry.fromRaw(key, rawData[key]);
 					} catch (entryerr) {
 						console.log("Non-fatal error raised while parsing JSON to priceEntry object: "+entryerr);
 					}
@@ -65,6 +70,15 @@ fs.readFile(userDataPath, 'utf8', (err, data) => {
 	});
 });
 
+function getEnv(var_name, otherwise=undefined) {
+	if (process.env[var_name]) {
+		return process.env[var_name]
+	} else if (otherwise) {
+		return otherwise
+	} else {
+		throw `${var_name} not set in environment`
+	}
+}
 
 // Save data in case of restarts or emergencies so that existing data won't be lost
 function saveData() {
@@ -115,7 +129,7 @@ function updateBestStonks() {
 	// console.debug(best_stonks);
 }
 
-const dismissTimeout = process.env.DISCORD_STONKS_DISMISSMESSAGETIMEOUT ? process.env.DISCORD_STONKS_DISMISSMESSAGETIMEOUT : 5;
+const dismissTimeout = parseInt(getEnv('DISCORD_STONKS_DISMISSMESSAGETIMEOUT', '5'));
 const dismissEmoji = "👌";
 function sendDismissableMessage(channel, data, invokingUserID) {
 	channel.send(data)
@@ -130,7 +144,7 @@ function sendDismissableMessage(channel, data, invokingUserID) {
 
 const elevatedPermissionList = ["BAN_MEMBERS", "MANAGE_MESSAGES"];
 function hasElevatedPermissions(member) {
-	if (process.env.DISCORD_STONKS_BOTOWNERID && process.env.DISCORD_STONKS_BOTOWNERID == member.id) return true;
+	if (getEnv('DISCORD_STONKS_BOTOWNERID') == member.id) return true;
 	for (let i=0; i < elevatedPermissionList.length; i++){
 		if (member.hasPermission(elevatedPermissionList[i])) {
 			return true;
@@ -141,10 +155,35 @@ function hasElevatedPermissions(member) {
 
 
 class userEntry { // there doesn't seem to be anything non-experimental for private fields
-	constructor(id, timezone, friendcode) {
+	constructor(id, timezone, friendcode, weekUpdated, _weekPrices) {
 		this.id = id; // probably redundant
 		this.timezone = timezone;
 		this.friendcode = friendcode;
+		this.weekUpdated = weekUpdated;
+		this._weekPrices = _weekPrices;
+	}
+	get weekPrices() {
+		let currWeek = moment().tz(this.timezone).week()
+		if (this.weekUpdated != currWeek) {
+			console.log(`Cleared week price data for ${this.id}`)
+			this._weekPrices = Array(13).fill('');
+		}
+		this.weekUpdated = currWeek;
+		return this._weekPrices;
+	}
+	get filledWeekPrices() {
+		let lastFilledIndex = this._weekPrices.map((k) => Boolean(k)).lastIndexOf(true) + 1
+		return this._weekPrices.slice(0, lastFilledIndex);
+	}
+
+	static fromRaw(id, obj) {
+		return new userEntry(
+			id,
+			obj.timezone,
+			obj.friendcode,
+			obj.hasOwnProperty('weekUpdated') ? obj.weekUpdated : moment().tz(obj.timezone).week(),
+			obj.hasOwnProperty('_weekPrices') ? obj._weekPrices : Array(13).fill(''),
+		);
 	}
 }
 
@@ -168,17 +207,43 @@ class priceEntry {
 		return `${Math.floor((timeLeft / 3600000) % 24)}h${Math.floor((timeLeft / 60000) % 60)}m`;
 	}
 
+	getPriceInterval() {
+		// Sunday:      0
+		// Monday AM:   1
+		// Monday PM:   2
+		// Tuesday AM:  3
+		// ...
+		// Saturday AM: 11
+		// Saturday PM: 12
+		let user_tz = userData[this.user.id].timezone
+		let m = moment().tz(user_tz)
+		if (m.day() == 0) {
+			return 0;
+		} else {
+			return m.day() * 2 - (m.hour() < 12)
+		}
+	}
+
 	updatePrice(price) {
 		if (isNaN(price) || price < 0 || price > 1000 || price % 1 != 0) throw new RangeError("Supplied price "+price+" is invalid");
 		let now_tz = moment().tz(userData[this.user.id].timezone); // the current time, adjusted with the timezone of the user.
 		if (now_tz.weekday() == 7) throw new RangeError("Cannot create offers on a sunday - turnips arent sold on sundays.");
 		this.price = price;
+		this.user.weekPrices[this.getPriceInterval()] = price;
 		this.expiresAt = now_tz.hour() < 12 ? now_tz.clone().hour(12).minute(0).second(0).millisecond(0) : now_tz.clone().hour(24).minute(0).second(0).millisecond(0);
+	}
+
+	static fromRaw(id, obj) {
+		return new priceEntry(
+			id,
+			obj.price,
+			obj.expiresAt
+		)
 	}
 }
 
-const queueAcceptingMinutes = process.env.DISCORD_STONKS_QUEUEACCEPTINGMINUTES ? process.env.DISCORD_STONKS_QUEUEACCEPTINGMINUTES : 30;
-const queueToSellMinutes = process.env.DISCORD_STONKS_QUEUETOSELLMINUTES ? process.env.DISCORD_STONKS_QUEUEACCEPTINGMINUTES : 7;
+const queueAcceptingMinutes = parseInt(getEnv('DISCORD_STONKS_QUEUEACCEPTINGMINUTES', '30'));
+const queueToSellMinutes = parseInt(getEnv('DISCORD_STONKS_QUEUETOSELLMINUTES', '7'))
 
 class queueEntry {
 	constructor(userId) {
@@ -204,7 +269,7 @@ class queueEntry {
 			description: `The Dodo Code is **${this.dodoCode}**.\nYou have **${queueToSellMinutes} minutes** to connect, sell your turnips, and leave the island.\nOnce your timeslot expires, the next user in the queue will be automatically messaged.\nShould you be done early, please click 👍 to notify that you're done.\nIf you wish to reconnect later to sell more, click 🔁 to be added to the queue again. *Please note that this also ends your turn!*`
 		}}).then(msg => {
 			msg.react('👍');
-			msg.react('🔁'); 
+			msg.react('🔁');
 			const doneCollector = msg.createReactionCollector((r,u) => !u.bot && ['👍','🔁'].includes(r.emoji.name), {time: queueToSellMinutes*60*1000, max: 1});
 			doneCollector.on('end', (collected, reason) => {
 				if (reason != 'time' && collected.size != 0 && collected.first().emoji.name == '🔁') {
@@ -297,6 +362,7 @@ const listInvoker = 'stonks';
 const removeInvoker = 'remove';
 const profileInvoker = 'profile';
 const queueInvoker = 'queue';
+const weekInvoker = 'week';
 const zoneListURL = "https://gist.github.com/baabaablackgoat/92f7408897f0f7e673d20a1301ca5bea";
 const lowercasedTimezones = moment.tz.names().map(tz => tz.toLowerCase());
 client.on('message', msg => {
@@ -346,7 +412,7 @@ client.on('message', msg => {
 	// Show profile
 	if (msg.content.startsWith(msgPrefix + profileInvoker)) {
 		// searched user by mention
-		if (msg.mentions.members.size > 0) { 
+		if (msg.mentions.members.size > 0) {
 			if (msg.mentions.members.size > 1) {
 				const moreThanOneProfileEmbed = new Discord.MessageEmbed({
 					author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
@@ -455,7 +521,7 @@ client.on('message', msg => {
 			}
 		}
 		if (userData.hasOwnProperty(msg.author.id)) userData[msg.author.id].timezone = timezone;
-		else userData[msg.author.id] = new userEntry(msg.author.id, timezone, null);
+		else userData[msg.author.id] = new userEntry(msg.author.id, timezone, null, null, null);
 		if (inaccurateTimezones.includes(timezone)) {
 			const confirmDangerousTimezoneSetEmbed = new Discord.MessageEmbed({
 				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
@@ -516,7 +582,7 @@ client.on('message', msg => {
 			sendDismissableMessage(msg.channel, friendcodeAddedEmbed, msg.author.id);
 			return;
 		} else {
-			userData[msg.author.id] = new userEntry(msg.author.id, null, fc);
+			userData[msg.author.id] = new userEntry(msg.author.id, null, fc, null, null);
 			const profileWithFriendcodeCreatedEmbed = new Discord.MessageEmbed({
 				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 				color: 4289797,
@@ -555,7 +621,7 @@ client.on('message', msg => {
 				sendDismissableMessage(msg.channel, tooManyMentionsEmbed, msg.author.id);
 				return;
 			}
-			
+
 			// Removing the other users' listing
 			let target = msg.mentions.members.first();
 			if (!priceData.hasOwnProperty(target.id)) {
@@ -703,7 +769,7 @@ client.on('message', msg => {
 						const collectedCreatorMessage = collected.first() ;
 						queueData[msg.author.id].dodoCode = collectedCreatorMessage.content.substring(0,5).toUpperCase();
 						if (collectedCreatorMessage.content.substring(6).trim().length != 0) queueData[msg.author.id].addlInformation = collectedCreatorMessage.content.substring(6, 1000).trim();
-						
+
 						// Update the queue info message to contain useful data.
 						if (informationMessage) {
 							informationEmbed.description = `ℹ If you wish to join this queue, react to this message with 📈. **This queue will close in ${queueAcceptingMinutes} minutes from creation.**`; // TODO Change this
@@ -727,9 +793,9 @@ client.on('message', msg => {
 				msg.channel.send(informationEmbed).then(reactionJoinMsg => {
 						informationMessage = reactionJoinMsg;
 						reactionJoinMsg.react("📈");
-						const joinReactionCollector = reactionJoinMsg.createReactionCollector((r,u) => !u.bot && u.id != msg.author.id && r.emoji.name == "📈", {time: queueAcceptingMinutes*60*1000}); 
+						const joinReactionCollector = reactionJoinMsg.createReactionCollector((r,u) => !u.bot && u.id != msg.author.id && r.emoji.name == "📈", {time: queueAcceptingMinutes*60*1000});
 						joinReactionCollector.on('collect', (reaction, reactingUser) => {
-							//Prevent users from queuing up multiple times 
+							//Prevent users from queuing up multiple times
 							if (queueData[msg.author.id].userQueue.filter(e => e.id == reactingUser.id).length > 0) return;
 							//Add the reacting user to the queue and fire an update on the queue (in case it is empty to immediately allow the user to join)
 							reactingUser.send({embed: { // make sure first that DMs are enabled by this user then add them to the queue
@@ -775,8 +841,57 @@ client.on('message', msg => {
 			});
 	}
 
+	if (msg.content.startsWith(msgPrefix + weekInvoker)) {
+		if (!userData.hasOwnProperty(msg.author.id)) { // check if profile exists
+			const noProfileWeekStats = new Discord.MessageEmbed({
+				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+				color: 16312092,
+				description: `⚠ You didn't register a profile with me so far.`
+			});
+			sendDismissableMessage(msg.channel, noProfileWeekStats, msg.author.id);
+			return;
+		}
+		let weekPrices = userData[msg.author.id].weekPrices;
+		let filledWeekPrices = userData[msg.author.id].filledWeekPrices;
+		let weeks = [
+			["Mon", 1],
+			["Tue", 3],
+			["Wed", 5],
+			["Thu", 7],
+			["Fri", 9],
+			["Sat", 11],
+		]
+		const weekStatEmbed = new Discord.MessageEmbed({
+			author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+			title: "Your week's (registered) prices",
+			color: 16711907,
+			fields: [ // holy shit this is ugly please make it stop and beautiful
+				{name: "Purchased for", value: `${weekPrices[0] ? weekPrices[0] : "???"} Bells`},
+			].concat(weeks.map(([day,idx]) => {
+				return {
+					name: day,
+					value: `${weekPrices[idx] ? weekPrices[idx] : "???"} / ${weekPrices[idx+1] ? weekPrices[idx+1] : "???"} Bells`,
+					inline: true,
+				}
+			})).concat([
+				{
+					name: "turnipprophet.io - Predictions link",
+					value: `**https://turnipprophet.io?prices=${filledWeekPrices.join('.')}**\nPlease note that turnipprophet.io was NOT made by me, and leads to said external site. I don't have control over the things shown there, only about the price input.`,
+					inline: false}
+			])
+		});
+		sendDismissableMessage(msg.channel, weekStatEmbed, msg.author.id);
+	}
+
 	// actual stonks handling ("default case")
-	stonks_value = Number(msg.content.substring(msgPrefix.length));
+	let tokens = msg.content.split(" ")
+	let interval = undefined
+	if (tokens.length > 1) {
+		let rawInterval = tokens[1].toLowerCase()
+		interval = Number(rawInterval)
+	}
+	stonks_value = Number(tokens[0].substring(1));
+
 	if (isNaN(stonks_value)) return;
 	if (!userData.hasOwnProperty(msg.author.id) || !userData[msg.author.id].timezone) {
 		const registerTimezoneFirstEmbed = new Discord.MessageEmbed({
@@ -806,6 +921,28 @@ client.on('message', msg => {
 		sendDismissableMessage(msg.channel, invalidStalkPriceEmbed, msg.author.id);
 		return;
 	}
+	if (interval !== undefined) {
+		if (interval >= 0 && interval < 13) {
+			let weekDayName = moment().day(Math.floor(interval + 1) / 2).format('dddd')
+			if (interval != 0) {
+				weekDayName += interval % 2 ? ' AM' : ' PM'
+			}
+			userData[msg.author.id].weekPrices[interval] = stonks_value
+			msg.channel.send({embed: {
+				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+				color: 4289797,
+				description: `💰 updated listing: **${stonks_value} Bells** for ${weekDayName}`
+			}});
+		} else {
+			const invalidIntervalEmbed = new Discord.MessageEmbed({
+				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+				color: 16312092,
+				description: `⚠ Invalid interval specified.`
+			});
+			sendDismissableMessage(msg.channel, invalidIntervalEmbed, msg.author.id);
+		}
+		return;
+	}
 	if (priceData.hasOwnProperty(msg.author.id)) {
 		priceData[msg.author.id].updatePrice(stonks_value);
 		msg.channel.send({embed: {
@@ -831,9 +968,10 @@ client.on('ready', () => {
 	console.log(`stalnks. logged in as ${client.user.tag}`);
 
 	// get stuff about the channel and the possibly editable message
+	updateChannelID = getEnv('DISCORD_STONKS_UPDATECHANNELID', false);
 
-	if (process.env.DISCORD_STONKS_UPDATECHANNELID) {
-		client.channels.fetch(process.env.DISCORD_STONKS_UPDATECHANNELID)
+	if (updateChannelID) {
+		client.channels.fetch(updateChannelID)
 			.then(channel => {
 				updateChannel = channel;
 				channel.messages.fetch({limit:10})
@@ -860,7 +998,7 @@ client.on('ready', () => {
 						}
 					})
 					.catch(err => {
-						updateChannel = false;						
+						updateChannel = false;
 						console.log("Error occured while attempting to fetch messages from channel: "+err+ "\nAssuming channel is inaccessible. No updates will be sent.");
 					});
 			})
@@ -870,7 +1008,7 @@ client.on('ready', () => {
 			});
 	} else {
 		console.log("No channel was specified as an environment variable. No updates will be sent.");
-	}	
+	}
 });
 
-client.login(process.env.DISCORD_STONKS_TOKEN);
+client.login(getEnv('DISCORD_STONKS_TOKEN'));
