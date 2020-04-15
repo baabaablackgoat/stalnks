@@ -255,14 +255,8 @@ class queueEntry {
 		this.acceptingEntries = true;
 	}
 
-	userQueuePosition(userId) { // TODO - for some reason the user queue length is very short...?
-		// return this.userQueue.findIndex(q => q.id == userId); // this should be enough, the rest of the code is me trying to figure out why the heck this won't work
-		console.log(this.userQueue.length);
-		let foundIndex = this.userQueue.findIndex((user) => {
-			console.log(user.id); 
-			return user.id == userId;
-		});
-		return foundIndex;
+	userQueuePosition(userId) {
+		return this.userQueue.findIndex(q => q.id == userId);
 	}
 
 	update(){
@@ -286,7 +280,7 @@ class queueEntry {
 					this.userQueue.push(this.currentUserProcessed);
 					msg.channel.send({embed:{
 						color: 16711907,
-						description: `🔁 You have been added back into the queue at position ${this.userQueuePosition(currentUserProcessed.id) + 1}. Your turn is over for now.`
+						description: `🔁 You have been added back into the queue at position ${this.userQueuePosition(msg.channel.recipient.id) + 1}. Your turn is over for now.`
 					}});
 				} else {
 					msg.channel.send({embed:{
@@ -808,13 +802,20 @@ client.on('message', msg => {
 							//Prevent users from queuing up multiple times
 							if (queueData[msg.author.id].userQueue.filter(e => e.id == reactingUser.id).length > 0) return;
 							//Add the reacting user to the queue and fire an update on the queue (in case it is empty to immediately allow the user to join)
-							reactingUser.send({embed: { // make sure first that DMs are enabled by this user then add them to the queue
+							let addedToQueueEmbed = new Discord.MessageEmbed({
 								color: 16711907,
-								description: `You have been added to the queue. Your position is ${queueData[msg.author.id].userQueuePosition(reactingUser.id)+ 1}.\nIf you wish to leave the queue, click 👋.`
-							}}).then(confirmationMsg => {
+								description: `You have been added to the queue. Your position is [CALCULATING...].\nIf you wish to leave the queue, click 👋.` 
+							});
+							reactingUser.send(addedToQueueEmbed) // make sure first that DMs are enabled by this user then add them to the queue
+							.then(confirmationMsg => {
 								// Add user to queue and update the queue
 								queueData[msg.author.id].userQueue.push(reactingUser);
+								// Add the queue position
+								addedToQueueEmbed.description = addedToQueueEmbed.description.replace("[CALCULATING...]", queueData[msg.author.id].userQueuePosition(reactingUser.id) + 1); 
+								confirmationMsg.edit(addedToQueueEmbed);
+								// Update the queue
 								queueData[msg.author.id].update();
+								
 								// Users unqueueing from the queue
 								confirmationMsg.react('👋');
 								const leaveQueueCollector = confirmationMsg.createReactionCollector((r,u) => !u.bot && r.emoji.name == '👋', {time: queueAcceptingMinutes*60*1000, max: 1});
