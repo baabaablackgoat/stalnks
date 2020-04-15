@@ -72,11 +72,11 @@ fs.readFile(userDataPath, 'utf8', (err, data) => {
 
 function getEnv(var_name, otherwise=undefined) {
 	if (process.env[var_name]) {
-		return process.env[var_name]
+		return process.env[var_name];
 	} else if (otherwise) {
-		return otherwise
+		return otherwise;
 	} else {
-		throw `${var_name} not set in environment`
+		throw `${var_name} not set in environment`;
 	}
 }
 
@@ -163,16 +163,16 @@ class userEntry { // there doesn't seem to be anything non-experimental for priv
 		this._weekPrices = _weekPrices;
 	}
 	get weekPrices() {
-		let currWeek = moment().tz(this.timezone).week()
+		let currWeek = moment().tz(this.timezone).week();
 		if (this.weekUpdated != currWeek) {
-			console.log(`Cleared week price data for ${this.id}`)
+			console.log(`Cleared week price data for ${this.id}`);
 			this._weekPrices = Array(13).fill('');
 		}
 		this.weekUpdated = currWeek;
 		return this._weekPrices;
 	}
 	get filledWeekPrices() {
-		let lastFilledIndex = this._weekPrices.map((k) => Boolean(k)).lastIndexOf(true) + 1
+		let lastFilledIndex = this._weekPrices.map((k) => Boolean(k)).lastIndexOf(true) + 1;
 		return this._weekPrices.slice(0, lastFilledIndex);
 	}
 
@@ -182,7 +182,7 @@ class userEntry { // there doesn't seem to be anything non-experimental for priv
 			obj.timezone,
 			obj.friendcode,
 			obj.hasOwnProperty('weekUpdated') ? obj.weekUpdated : moment().tz(obj.timezone).week(),
-			obj.hasOwnProperty('_weekPrices') ? obj._weekPrices : Array(13).fill(''),
+			obj.hasOwnProperty('_weekPrices') ? obj._weekPrices : Array(13).fill('')
 		);
 	}
 }
@@ -215,12 +215,12 @@ class priceEntry {
 		// ...
 		// Saturday AM: 11
 		// Saturday PM: 12
-		let user_tz = userData[this.user.id].timezone
-		let m = moment().tz(user_tz)
+		let user_tz = userData[this.user.id].timezone;
+		let m = moment().tz(user_tz);
 		if (m.day() == 0) {
 			return 0;
 		} else {
-			return m.day() * 2 - (m.hour() < 12)
+			return m.day() * 2 - (m.hour() < 12);
 		}
 	}
 
@@ -238,12 +238,12 @@ class priceEntry {
 			id,
 			obj.price,
 			obj.expiresAt
-		)
+		);
 	}
 }
 
 const queueAcceptingMinutes = parseInt(getEnv('DISCORD_STONKS_QUEUEACCEPTINGMINUTES', '30'));
-const queueToSellMinutes = parseInt(getEnv('DISCORD_STONKS_QUEUETOSELLMINUTES', '7'))
+const queueToSellMinutes = parseInt(getEnv('DISCORD_STONKS_QUEUETOSELLMINUTES', '7'));
 
 class queueEntry {
 	constructor(userId) {
@@ -860,7 +860,7 @@ client.on('message', msg => {
 			["Thu", 7],
 			["Fri", 9],
 			["Sat", 11],
-		]
+		];
 		const weekStatEmbed = new Discord.MessageEmbed({
 			author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 			title: "Your week's (registered) prices",
@@ -872,7 +872,7 @@ client.on('message', msg => {
 					name: day,
 					value: `${weekPrices[idx] ? weekPrices[idx] : "???"} / ${weekPrices[idx+1] ? weekPrices[idx+1] : "???"} Bells`,
 					inline: true,
-				}
+				};
 			})).concat([
 				{
 					name: "turnipprophet.io - Predictions link",
@@ -884,11 +884,11 @@ client.on('message', msg => {
 	}
 
 	// actual stonks handling ("default case")
-	let tokens = msg.content.split(" ")
-	let interval = undefined
+	let tokens = msg.content.split(" ");
+	let interval;
 	if (tokens.length > 1) {
-		let rawInterval = tokens[1].toLowerCase()
-		interval = Number(rawInterval)
+		let rawInterval = tokens[1].toLowerCase();
+		interval = Number(rawInterval);
 	}
 	stonks_value = Number(tokens[0].substring(1));
 
@@ -923,11 +923,11 @@ client.on('message', msg => {
 	}
 	if (interval !== undefined) {
 		if (interval >= 0 && interval < 13) {
-			let weekDayName = moment().day(Math.floor(interval + 1) / 2).format('dddd')
+			let weekDayName = moment().day(Math.floor(interval + 1) / 2).format('dddd');
 			if (interval != 0) {
-				weekDayName += interval % 2 ? ' AM' : ' PM'
+				weekDayName += interval % 2 ? ' AM' : ' PM';
 			}
-			userData[msg.author.id].weekPrices[interval] = stonks_value
+			userData[msg.author.id].weekPrices[interval] = stonks_value;
 			msg.channel.send({embed: {
 				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 				color: 4289797,
