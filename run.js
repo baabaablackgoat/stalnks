@@ -866,7 +866,14 @@ client.on('message', msg => {
 	}
 
 	// actual stonks handling ("default case")
-	stonks_value = Number(msg.content.substring(msgPrefix.length));
+	let tokens = msg.content.split(" ")
+	let interval = undefined
+	if (tokens.length > 1) {
+		let rawInterval = tokens[1].toLowerCase()
+		interval = Number(rawInterval)
+	}
+	stonks_value = Number(tokens[0].substring(1));
+
 	if (isNaN(stonks_value)) return;
 	if (!userData.hasOwnProperty(msg.author.id) || !userData[msg.author.id].timezone) {
 		const registerTimezoneFirstEmbed = new Discord.MessageEmbed({
@@ -894,6 +901,28 @@ client.on('message', msg => {
 			description: `⚠ Invalid stalk price specified.`
 		});
 		sendDismissableMessage(msg.channel, invalidStalkPriceEmbed, msg.author.id);
+		return;
+	}
+	if (interval !== undefined) {
+		if (interval >= 0 && interval < 13) {
+			let weekDayName = moment().day(Math.floor(interval + 1) / 2).format('dddd')
+			if (interval != 0) {
+				weekDayName += interval % 2 ? ' AM' : ' PM'
+			}
+			userData[msg.author.id].weekPrices[interval] = stonks_value
+			msg.channel.send({embed: {
+				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+				color: 4289797,
+				description: `💰 updated listing: **${stonks_value} Bells** for ${weekDayName}`
+			}});
+		} else {
+			const invalidIntervalEmbed = new Discord.MessageEmbed({
+				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+				color: 16312092,
+				description: `⚠ Invalid interval specified.`
+			});
+			sendDismissableMessage(msg.channel, invalidIntervalEmbed, msg.author.id);
+		}
 		return;
 	}
 	if (priceData.hasOwnProperty(msg.author.id)) {
