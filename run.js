@@ -30,7 +30,7 @@ fs.readFile(userDataPath, 'utf8', (err, data) => {
 			rawData = JSON.parse(data);
 			for (let key in rawData) {
 				try {
-					userData[key] = new userEntry(key, rawData[key].timezone, rawData[key].friendcode);
+					userData[key] = userEntry.fromRaw(key, rawData[key]);
 				} catch (entryErr) {
 					console.log("Non-fatal error raised while reading userData from JSON: "+entryErr);
 				}
@@ -57,7 +57,7 @@ fs.readFile(userDataPath, 'utf8', (err, data) => {
 				rawData = JSON.parse(data);
 				for (let key in rawData) {
 					try {
-						priceData[key] = new priceEntry(key, rawData[key].price, rawData[key].expiresAt);
+						priceData[key] = priceEntry.fromRaw(key, rawData[key]);
 					} catch (entryerr) {
 						console.log("Non-fatal error raised while parsing JSON to priceEntry object: "+entryerr);
 					}
@@ -155,12 +155,12 @@ function hasElevatedPermissions(member) {
 
 
 class userEntry { // there doesn't seem to be anything non-experimental for private fields
-	constructor(id, timezone, friendcode) {
+	constructor(id, timezone, friendcode, weekUpdated, _weekPrices) {
 		this.id = id; // probably redundant
 		this.timezone = timezone;
 		this.friendcode = friendcode;
-		this.weekUpdated = moment().tz(timezone).week();
-		this._weekPrices = Array(13).fill('');
+		this.weekUpdated = weekUpdated;
+		this._weekPrices = _weekPrices;
 	}
 	get weekPrices() {
 		let currWeek = moment().tz(this.timezone).week()
@@ -174,6 +174,16 @@ class userEntry { // there doesn't seem to be anything non-experimental for priv
 	get filledWeekPrices() {
 		let lastFilledIndex = this._weekPrices.map((k) => Boolean(k)).lastIndexOf(true) + 1
 		return this._weekPrices.slice(0, lastFilledIndex);
+	}
+
+	static fromRaw(id, obj) {
+		return new userEntry(
+			id,
+			obj.timezone,
+			obj.friendcode,
+			obj.hasOwnProperty('weekUpdated') ? obj.weekUpdated : moment().tz(obj.timezone).week(),
+			obj.hasOwnProperty('_weekPrices') ? obj._weekPrices : Array(13).fill(''),
+		);
 	}
 }
 
@@ -221,6 +231,14 @@ class priceEntry {
 		this.price = price;
 		this.user.weekPrices[this.getPriceInterval()] = price;
 		this.expiresAt = now_tz.hour() < 12 ? now_tz.clone().hour(12).minute(0).second(0).millisecond(0) : now_tz.clone().hour(24).minute(0).second(0).millisecond(0);
+	}
+
+	static fromRaw(id, obj) {
+		return new priceEntry(
+			id,
+			obj.price,
+			obj.expiresAt
+		)
 	}
 }
 
@@ -503,7 +521,7 @@ client.on('message', msg => {
 			}
 		}
 		if (userData.hasOwnProperty(msg.author.id)) userData[msg.author.id].timezone = timezone;
-		else userData[msg.author.id] = new userEntry(msg.author.id, timezone, null);
+		else userData[msg.author.id] = new userEntry(msg.author.id, timezone, null, null, null);
 		if (inaccurateTimezones.includes(timezone)) {
 			const confirmDangerousTimezoneSetEmbed = new Discord.MessageEmbed({
 				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
@@ -564,7 +582,7 @@ client.on('message', msg => {
 			sendDismissableMessage(msg.channel, friendcodeAddedEmbed, msg.author.id);
 			return;
 		} else {
-			userData[msg.author.id] = new userEntry(msg.author.id, null, fc);
+			userData[msg.author.id] = new userEntry(msg.author.id, null, fc, null, null);
 			const profileWithFriendcodeCreatedEmbed = new Discord.MessageEmbed({
 				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 				color: 4289797,
