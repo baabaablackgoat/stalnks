@@ -8,7 +8,7 @@ if (!fs.existsSync('./data')){
 	fs.mkdirSync('./data');
 }
 
-// timezone & friend code data 
+// timezone & friend code data
 const userDataPath = './data/userData.json';
 let userData = {}; // this shall store the timezones of our users
 const priceDataPath = './data/priceData.json';
@@ -171,6 +171,10 @@ class userEntry { // there doesn't seem to be anything non-experimental for priv
 		this.weekUpdated = currWeek;
 		return this._weekPrices;
 	}
+	get filledWeekPrices() {
+		let lastFilledIndex = this._weekPrices.map((k) => Boolean(k)).lastIndexOf(true) + 1
+		return this._weekPrices.slice(0, lastFilledIndex);
+	}
 }
 
 class priceEntry {
@@ -247,7 +251,7 @@ class queueEntry {
 			description: `The Dodo Code is **${this.dodoCode}**.\nYou have **${queueToSellMinutes} minutes** to connect, sell your turnips, and leave the island.\nOnce your timeslot expires, the next user in the queue will be automatically messaged.\nShould you be done early, please click 👍 to notify that you're done.\nIf you wish to reconnect later to sell more, click 🔁 to be added to the queue again. *Please note that this also ends your turn!*`
 		}}).then(msg => {
 			msg.react('👍');
-			msg.react('🔁'); 
+			msg.react('🔁');
 			const doneCollector = msg.createReactionCollector((r,u) => !u.bot && ['👍','🔁'].includes(r.emoji.name), {time: queueToSellMinutes*60*1000, max: 1});
 			doneCollector.on('end', (collected, reason) => {
 				if (reason != 'time' && collected.size != 0 && collected.first().emoji.name == '🔁') {
@@ -390,7 +394,7 @@ client.on('message', msg => {
 	// Show profile
 	if (msg.content.startsWith(msgPrefix + profileInvoker)) {
 		// searched user by mention
-		if (msg.mentions.members.size > 0) { 
+		if (msg.mentions.members.size > 0) {
 			if (msg.mentions.members.size > 1) {
 				const moreThanOneProfileEmbed = new Discord.MessageEmbed({
 					author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
@@ -599,7 +603,7 @@ client.on('message', msg => {
 				sendDismissableMessage(msg.channel, tooManyMentionsEmbed, msg.author.id);
 				return;
 			}
-			
+
 			// Removing the other users' listing
 			let target = msg.mentions.members.first();
 			if (!priceData.hasOwnProperty(target.id)) {
@@ -747,7 +751,7 @@ client.on('message', msg => {
 						const collectedCreatorMessage = collected.first() ;
 						queueData[msg.author.id].dodoCode = collectedCreatorMessage.content.substring(0,5).toUpperCase();
 						if (collectedCreatorMessage.content.substring(6).trim().length != 0) queueData[msg.author.id].addlInformation = collectedCreatorMessage.content.substring(6, 1000).trim();
-						
+
 						// Update the queue info message to contain useful data.
 						if (informationMessage) {
 							informationEmbed.description = `ℹ If you wish to join this queue, react to this message with 📈. **This queue will close in ${queueAcceptingMinutes} minutes from creation.**`; // TODO Change this
@@ -773,7 +777,7 @@ client.on('message', msg => {
 						reactionJoinMsg.react("📈");
 						const joinReactionCollector = reactionJoinMsg.createReactionCollector((r,u) => !u.bot && u.id != msg.author.id && r.emoji.name == "📈", {time: queueAcceptingMinutes*60*1000});
 						joinReactionCollector.on('collect', (reaction, reactingUser) => {
-							//Prevent users from queuing up multiple times 
+							//Prevent users from queuing up multiple times
 							if (queueData[msg.author.id].userQueue.filter(e => e.id == reactingUser.id).length > 0) return;
 							//Add the reacting user to the queue and fire an update on the queue (in case it is empty to immediately allow the user to join)
 							reactingUser.send({embed: { // make sure first that DMs are enabled by this user then add them to the queue
@@ -830,20 +834,33 @@ client.on('message', msg => {
 			return;
 		}
 		let weekPrices = userData[msg.author.id].weekPrices;
+		let filledWeekPrices = userData[msg.author.id].filledWeekPrices;
+		let weeks = [
+			["Mon", 1],
+			["Tue", 3],
+			["Wed", 5],
+			["Thu", 7],
+			["Fri", 9],
+			["Sat", 11],
+		]
 		const weekStatEmbed = new Discord.MessageEmbed({
 			author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 			title: "Your week's (registered) prices",
 			color: 16711907,
 			fields: [ // holy shit this is ugly please make it stop and beautiful
 				{name: "Purchased for", value: `${weekPrices[0] ? weekPrices[0] : "???"} Bells`},
-				{name: "Mon", value: `${weekPrices[1] ? weekPrices[1] : "???"} / ${weekPrices[2] ? weekPrices[2] : "???"} Bells`, inline: true},
-				{name: "Tue", value: `${weekPrices[3] ? weekPrices[3] : "???"} / ${weekPrices[4] ? weekPrices[4] : "???"} Bells`, inline: true},
-				{name: "Wed", value: `${weekPrices[5] ? weekPrices[5] : "???"} / ${weekPrices[6] ? weekPrices[6] : "???"} Bells`, inline: true},
-				{name: "Thu", value: `${weekPrices[7] ? weekPrices[7] : "???"} / ${weekPrices[8] ? weekPrices[8] : "???"} Bells`, inline: true},
-				{name: "Fri", value: `${weekPrices[9] ? weekPrices[9] : "???"} / ${weekPrices[10] ? weekPrices[10] : "???"} Bells`, inline: true},
-				{name: "Sat", value: `${weekPrices[11] ? weekPrices[11] : "???"} / ${weekPrices[12] ? weekPrices[12] : "???"} Bells`, inline: true},
-				{name: "turnipprophet.io - Predictions link", value: "**" + 'https://turnipprophet.io?prices=' + weekPrices.join('.') + "**\nPlease note that turnipprophet.io was NOT made by me, and leads to said external site. I don't have control over the things shown there, only about the price input.", inline: false}
-			]
+			].concat(weeks.map(([day,idx]) => {
+				return {
+					name: day,
+					value: `${weekPrices[idx] ? weekPrices[idx] : "???"} / ${weekPrices[idx+1] ? weekPrices[idx+1] : "???"} Bells`,
+					inline: true,
+				}
+			})).concat([
+				{
+					name: "turnipprophet.io - Predictions link",
+					value: `**https://turnipprophet.io?prices=${filledWeekPrices.join('.')}**\nPlease note that turnipprophet.io was NOT made by me, and leads to said external site. I don't have control over the things shown there, only about the price input.`,
+					inline: false}
+			])
 		});
 		sendDismissableMessage(msg.channel, weekStatEmbed, msg.author.id);
 	}
@@ -934,7 +951,7 @@ client.on('ready', () => {
 						}
 					})
 					.catch(err => {
-						updateChannel = false;						
+						updateChannel = false;
 						console.log("Error occured while attempting to fetch messages from channel: "+err+ "\nAssuming channel is inaccessible. No updates will be sent.");
 					});
 			})
@@ -944,7 +961,7 @@ client.on('ready', () => {
 			});
 	} else {
 		console.log("No channel was specified as an environment variable. No updates will be sent.");
-	}	
+	}
 });
 
 client.login(getEnv('DISCORD_STONKS_TOKEN'));
