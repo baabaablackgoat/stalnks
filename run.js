@@ -262,7 +262,23 @@ class queueEntry {
 	update(){
 		if (this.currentUserProcessed) return;
 		if (this.userQueue.length == 0) {
-			if (!this.acceptingEntries) delete queueData[this.id];
+			if (!this.acceptingEntries) { // Queue is officially closed
+				const queueIsClosedEmbed = new Discord.MessageEmbed({
+					color: 16711907,
+					description: `Thank you for sharing your turnip prices with everyone! It looks like the queue you started has come to an end. If you like, you can:`,
+					fields: [
+						{name: "1)", value: "Leave everything as it is, and let folks come and go in a free-for-all fashion.\n(Consider sharing the code with your friends or in a text channel)"},
+						{name: "2)", value: "Close your island and create a new Dodo Code to get a sense of privacy again, and distribute it among friends, or start a new queue if lots of folks are still asking!"},
+						{name: "3)", value: "Close your island and let us know you're done!"}
+					],
+					footer: {text: "📈 STONKS"}
+				});
+				client.users.fetch(this.id)
+					.then(user => user.send(queueIsClosedEmbed))
+					.catch(err => console.log("Couldn't message queue creating user about the queue being closed: "+err)
+				);
+				delete queueData[this.id]; // actually deleting the queue entry
+			}
 			return;
 		}
 		if (!this.dodoCode) return;
