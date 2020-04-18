@@ -73,7 +73,7 @@ fs.readFile(userDataPath, 'utf8', (err, data) => {
 function getEnv(var_name, otherwise=undefined) {
 	if (process.env[var_name]) {
 		return process.env[var_name];
-	} else if (otherwise) {
+	} else if (otherwise !== undefined) {
 		return otherwise;
 	} else {
 		throw `${var_name} not set in environment`;
@@ -127,6 +127,14 @@ function updateBestStonks() {
 		}
 	}
 	// console.debug(best_stonks);
+}
+
+// determine wether the input price is mention-worthy
+function priceIsMentionWorthy(new_value) {
+	if (new_value < MINIMUM_PRICE_FOR_PING) return false;
+	if (!best_stonks || !best_stonks[0]) return true;// If no best stonk exists, it's mentionworthy
+	if (new_value <= best_stonks[0].price) return false; // Best stonk exists and is equal or better
+	return true; // Best known stonk is worse - mentionworthy!
 }
 
 const dismissTimeout = parseInt(getEnv('DISCORD_STONKS_DISMISSMESSAGETIMEOUT', '5'));
@@ -369,6 +377,10 @@ function sendBestStonksToUpdateChannel() {
 	}
 }
 
+const MINIMUM_PRICE_FOR_PING = parseInt(getEnv("DISCORD_STONKS_MINIMUM_PRICE_FOR_PING", 400));
+const PING_ROLE_ID = getEnv("DISCORD_STONKS_PING_ROLE_ID", false);
+let goodPricePingRole;
+
 const inaccurateTimezones = ['CET', 'EET', 'EST', 'EST5EDT', 'GB', 'HST', 'MET', 'MST', 'PRC', 'ROC', 'ROK', 'UCT','WET', 'Universal', 'Etc/Universal',
 	'Etc/GMT', 'Etc/GMT+0', 'Etc/GMT+1', 'Etc/GMT+10','Etc/GMT+11','Etc/GMT+12','Etc/GMT+2','Etc/GMT+3','Etc/GMT+4','Etc/GMT+5','Etc/GMT+6','Etc/GMT+7',
 	'Etc/GMT+8','Etc/GMT+9','Etc/GMT-0','Etc/GMT-1','Etc/GMT-10','Etc/GMT-11','Etc/GMT-12','Etc/GMT-13','Etc/GMT-14','Etc/GMT-2','Etc/GMT-3','Etc/GMT-4',
@@ -389,6 +401,26 @@ client.on('message', msg => {
 	if (msg.author.bot) return;
 	if (msg.channel.type != "text") return;
 	if (!msg.content.startsWith(msgPrefix)) return;
+
+	// Fetch ping role on first command issue
+	if (goodPricePingRole === undefined) {
+		goodPricePingRole = false; // the role should not be checked for twice - false != undefined
+		if (PING_ROLE_ID) {
+			msg.guild.roles.fetch(PING_ROLE_ID)
+				.then(role => {
+					if (role.mentionable || msg.guild.me.hasPermission("MENTION_EVERYONE")) { // role is publicly mentionable, or bot has mention any role permission (includes mentioning everyone)
+						goodPricePingRole = role;
+						console.log("Pingable role was identified. Enabling mentions on prices >= "+MINIMUM_PRICE_FOR_PING);
+					} else {
+						console.log("The role specified in Env-vars was found, but is not mentionable and bot does not have permission to mention any role. Role mentions disabled.");
+					}
+				})
+				.catch(err => console.log("There was a problem while trying to fetch the role to mention for high prices, role mentions disabled: "+err)
+			);
+		} else {
+			console.log("No pingable role was specified in environment variables. To enable role pings on good prices, set Environment Variable DISCORD_STONKS_PING_ROLE_ID. Role mentions disabled.");
+		}
+	}
 
 	// help i've fallen and I can't get up
 	if (msg.content.startsWith(msgPrefix + helpInvoker)) {
@@ -792,7 +824,7 @@ client.on('message', msg => {
 
 						// Update the queue info message to contain useful data.
 						if (informationMessage) {
-							informationEmbed.description = `ℹ If you wish to join this queue, react to this message with 📈. **This queue will close in ${queueAcceptingMinutes} minutes from creation.**`; // TODO Change this
+							informationEmbed.description = `ℹ If you wish to join this queue, react to this message with 📈. **This queue will close in ${queueAcceptingMinutes} minutes from creation.**`;
 							informationEmbed.fields = [
 								{name: "Stalk price", value: priceData.hasOwnProperty(msg.author.id) ? priceData[msg.author.id].price + " Bells" : "Unknown", inline: false},
 								{name: "Additional information", value: queueData[msg.author.id].addlInformation, inline: false}
@@ -808,7 +840,7 @@ client.on('message', msg => {
 				informationEmbed = new Discord.MessageEmbed();
 				informationEmbed.author = {name: msg.member.displayName, icon_url: msg.author.avatarURL()};
 				informationEmbed.color = 16711907;
-				informationEmbed.description = `ℹ A queue is currently being set up for **${priceData.hasOwnProperty(msg.author.id) ? priceData[msg.author.id].price : "an unknown amount of"} Bells.**\n If you wish to join this queue, react to this message with 📈. **This queue will close in ${queueAcceptingMinutes} minutes.**`; // TODO CHange this
+				informationEmbed.description = `ℹ A queue is currently being set up for **${priceData.hasOwnProperty(msg.author.id) ? priceData[msg.author.id].price : "an unknown amount of"} Bells.**\n If you wish to join this queue, react to this message with 📈. **This queue will close in ${queueAcceptingMinutes} minutes.**`;
 				informationEmbed.timestamp = moment().utc().format();
 				msg.channel.send(informationEmbed).then(reactionJoinMsg => {
 						informationMessage = reactionJoinMsg;
@@ -911,6 +943,7 @@ client.on('message', msg => {
 	}
 
 	// actual stonks handling ("default case")
+
 	let tokens = msg.content.split(" ");
 	let interval;
 	if (tokens.length > 1) {
@@ -970,9 +1003,11 @@ client.on('message', msg => {
 		}
 		return;
 	}
+
+	let doRoleMention = goodPricePingRole && priceIsMentionWorthy(stonks_value); // check the new price against old prices first
 	if (priceData.hasOwnProperty(msg.author.id)) {
 		priceData[msg.author.id].updatePrice(stonks_value);
-		msg.channel.send({embed: {
+		msg.channel.send(doRoleMention ? `${goodPricePingRole}` : "", {embed: {
 			author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 			color: 4289797,
 			description: `💰 updated listing: **${stonks_value} Bells**, expires in ${priceData[msg.author.id].timeLeftString()}`
@@ -981,7 +1016,7 @@ client.on('message', msg => {
 		return;
 	} else {
 		priceData[msg.author.id] = new priceEntry(msg.author.id, stonks_value);
-		msg.channel.send({embed: {
+		msg.channel.send(doRoleMention ? `${goodPricePingRole}` : "", {embed: {
 			author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 			color: 4289797,
 			description: `💰 new listing: **${stonks_value} Bells**, expires in ${priceData[msg.author.id].timeLeftString()}`
