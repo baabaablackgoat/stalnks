@@ -92,6 +92,8 @@ function saveData() {
 let saveInterval = setInterval(saveData, 60000);
 
 // Removes entries from the priceData
+// TODO This should be deprecated - the price getter should auto-delete, right?
+/*
 function removeExpiredEntries() {
 	let del_counter = 0;
 	for (var key in priceData) {
@@ -104,10 +106,11 @@ function removeExpiredEntries() {
 	}
 	if (del_counter > 0) {
 		console.debug(`Removed ${del_counter} expired entries`);
-		sendBestStonksToUpdateChannel();
+		sendBestStonksToUpdateChannel(); // TODO This might be running on an interval instead
 	}
-}
+} 
 let expiredInterval = setInterval(removeExpiredEntries, 60000);
+*/
 
 // get the best stonks
 let best_stonks = [null, null, null];
@@ -115,10 +118,12 @@ function updateBestStonks() {
 	best_stonks = [null, null, null];
 	for (var key in priceData) {
 		if (priceData.hasOwnProperty(key)) {
+			let checkedPrice = priceData[key].price;
+			if (!checkedPrice) continue; // if the checked price is false, then it's been deleted! ==> skip this entry
 			let currentEntry = priceData[key];
 			for (let i = 0; i < best_stonks.length; i++) {
 				if (currentEntry == null) break; // if it's null it's been swapped, break inner for loop
-				if (best_stonks[i] == null || currentEntry.price > best_stonks[i].price) { // swap the entries
+				if (best_stonks[i] == null || checkedPrice > best_stonks[i].price) { // swap the entries. This should work right..?
 					let temp = best_stonks[i];
 					best_stonks[i] = currentEntry;
 					currentEntry = temp;
@@ -129,7 +134,6 @@ function updateBestStonks() {
 	// console.debug(best_stonks);
 }
 
-// determine wether the input price is mention-worthy
 function priceIsMentionWorthy(new_value) {
 	if (new_value < MINIMUM_PRICE_FOR_PING) return false;
 	if (!best_stonks || !best_stonks[0]) return true;// If no best stonk exists, it's mentionworthy
@@ -201,6 +205,7 @@ class priceEntry {
 		if (!(userId in userData)) throw new ReferenceError("userId "+userId+" not registered in userData.");
 		// used when loading existing data
 		if (expiresAt && moment(expiresAt).diff(moment().utc()) <= 0) throw new RangeError("Supplied entry expires in the past.");
+		this.id = userId;
 		this.user = userData[userId];
 		this.updatePrice(price);
 		// updateBestStonks();
@@ -236,7 +241,7 @@ class priceEntry {
 		if (isNaN(price) || price < 0 || price > 1000 || price % 1 != 0) throw new RangeError("Supplied price "+price+" is invalid");
 		let now_tz = moment().tz(userData[this.user.id].timezone); // the current time, adjusted with the timezone of the user.
 		if (now_tz.weekday() == 7) throw new RangeError("Cannot create offers on a sunday - turnips arent sold on sundays.");
-		this.price = price;
+		this._price = price;
 		this.user.weekPrices[this.getPriceInterval()] = price;
 		this.expiresAt = now_tz.hour() < 12 ? now_tz.clone().hour(12).minute(0).second(0).millisecond(0) : now_tz.clone().hour(24).minute(0).second(0).millisecond(0);
 	}
@@ -244,9 +249,18 @@ class priceEntry {
 	static fromRaw(id, obj) {
 		return new priceEntry(
 			id,
-			obj.price,
+			obj._price,
 			obj.expiresAt
 		);
+	}
+
+	get price() {
+		if (this.timeLeft() <= 0) { // entry has expired - delete self and return false.
+			console.log(`Listing by user ${this.id} was accessed but is expired, removing.`);
+			delete priceData[this.id];
+			return false;
+		}
+		return this._price;
 	}
 }
 
@@ -376,6 +390,8 @@ function sendBestStonksToUpdateChannel() {
 			});
 	}
 }
+let bestStonksUpdateInterval = setInterval(sendBestStonksToUpdateChannel, 5*60*1000); // update best prices every 5 minutes
+
 
 const MINIMUM_PRICE_FOR_PING = parseInt(getEnv("DISCORD_STONKS_MINIMUM_PRICE_FOR_PING", 400));
 const PING_ROLE_ID = getEnv("DISCORD_STONKS_PING_ROLE_ID", false);
