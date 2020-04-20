@@ -167,25 +167,60 @@ function hasElevatedPermissions(member) {
 
 
 class userEntry { // there doesn't seem to be anything non-experimental for private fields
-	constructor(id, timezone, friendcode, weekUpdated, _weekPrices) {
-		this.id = id; // probably redundant
+	constructor(id, timezone, friendcode, weekUpdated, lastWeekPattern, _weekPrices) {
+		this.id = id;
 		this.timezone = timezone;
 		this.friendcode = friendcode;
 		this.weekUpdated = weekUpdated;
+		this.lastWeekPattern = lastWeekPattern; // Fluctuating: 0, Large Spike: 1, Decreasing: 2, Small Spike: 3, I don't know: any
 		this._weekPrices = _weekPrices;
 	}
 	get weekPrices() {
 		let currWeek = moment().tz(this.timezone).week();
 		if (this.weekUpdated != currWeek) {
-			console.log(`Cleared week price data for ${this.id}`);
+			console.log(`Cleared week price data for ${this.id}.`);
+			this.lastWeekPattern = undefined;
+			// Asking for the previous pattern
+			client.users.fetch(this.id)
+				.then(user => {
+					const patternEmoji = {
+						large_spike: "💸",
+						small_spike: "📈",
+						fluctuating: "📊",
+						decreasing: "📉",
+					};
+					const patternNumbers = {fluctuating: 0, large_spike: 1, decreasing: 2, small_spike: 3};
+					const askForLastPatternEmbed = new Discord.MessageEmbed({
+						description: `It seems like you've entered turnip prices last week that have now run their course!\nDo you know which pattern your turnip prices were following **last week?**\nPlease use the reactions below to enter your pattern. If you don't know your pattern, you can ignore this message.\n\n${patternEmoji.large_spike} Large spike \n${patternEmoji.small_spike} Small spike \n${patternEmoji.fluctuating} Fluctuating \n${patternEmoji.decreasing} Decreasing`,
+						color: "LUMINOUS_VIVID_PINK",
+					});
+					user.send(askForLastPatternEmbed)
+						.then(sentMessage => {
+							for (let key in patternEmoji) { sentMessage.react(patternEmoji[key]); }
+							const patternCollector = sentMessage.createReactionCollector((r,u) => !u.bot && Object.values(patternEmoji).includes(r.emoji.name), {time: 5*60*1000, max: 1});
+							patternCollector.on("end", (collected, reason) => {
+								if (reason == 'time' || collected.size < 1) return;
+								this.lastWeekPattern = patternNumbers[Object.keys(patternEmoji).find(key => patternEmoji[key] == collected.first().emoji.name)];
+							});
+						})
+						.catch(err => console.log("Failed to message user to ask about last week's pattern: "+err));
+				})
+				.catch(err => console.log("Failed to lookup user to ask about last week's pattern: "+err));
+
 			this._weekPrices = Array(13).fill('');
 		}
 		this.weekUpdated = currWeek;
 		return this._weekPrices;
 	}
 	get filledWeekPrices() {
-		let lastFilledIndex = this._weekPrices.map((k) => Boolean(k)).lastIndexOf(true) + 1;
-		return this._weekPrices.slice(0, lastFilledIndex);
+		let lastFilledIndex = this.weekPrices.map((k) => Boolean(k)).lastIndexOf(true) + 1; // TODO over here
+		return this.weekPrices.slice(0, lastFilledIndex);
+	}
+
+	get turnipProphetURL() {
+		let pricesString = this.filledWeekPrices.join('.');
+		if (pricesString.length > 0) return `https://turnipprophet.io?prices=${pricesString}${this.lastWeekPattern !== undefined ? "&pattern=" + this.lastWeekPattern : ""}`;
+		else return `https://turnipprophet.io${this.lastWeekPattern !== undefined ? "?pattern=" + this.lastWeekPattern : ""}`;
 	}
 
 	static fromRaw(id, obj) {
@@ -194,10 +229,12 @@ class userEntry { // there doesn't seem to be anything non-experimental for priv
 			obj.timezone,
 			obj.friendcode,
 			obj.hasOwnProperty('weekUpdated') ? obj.weekUpdated : moment().tz(obj.timezone).week(),
+			obj.hasOwnProperty('lastWeekPattern') ? obj.lastWeekPattern : undefined,
 			obj.hasOwnProperty('_weekPrices') ? obj._weekPrices : Array(13).fill('')
 		);
 	}
 }
+
 
 class priceEntry {
 	constructor(userId, price, expiresAt = null) {
@@ -411,6 +448,8 @@ const removeInvoker = 'remove';
 const profileInvoker = 'profile';
 const queueInvoker = 'queue';
 const weekInvoker = 'week';
+const prophetInvoker = 'prophet';
+const lastPatternInvoker = 'pattern';
 const zoneListURL = "https://gist.github.com/baabaablackgoat/92f7408897f0f7e673d20a1301ca5bea";
 const lowercasedTimezones = moment.tz.names().map(tz => tz.toLowerCase());
 client.on('message', msg => {
@@ -589,7 +628,7 @@ client.on('message', msg => {
 			}
 		}
 		if (userData.hasOwnProperty(msg.author.id)) userData[msg.author.id].timezone = timezone;
-		else userData[msg.author.id] = new userEntry(msg.author.id, timezone, null, null, null);
+		else userData[msg.author.id] = new userEntry(msg.author.id, timezone, null, null, null, null);
 		if (inaccurateTimezones.includes(timezone)) {
 			const confirmDangerousTimezoneSetEmbed = new Discord.MessageEmbed({
 				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
@@ -650,7 +689,7 @@ client.on('message', msg => {
 			sendDismissableMessage(msg.channel, friendcodeAddedEmbed, msg.author.id);
 			return;
 		} else {
-			userData[msg.author.id] = new userEntry(msg.author.id, null, fc, null, null);
+			userData[msg.author.id] = new userEntry(msg.author.id, null, fc, null, null, null);
 			const profileWithFriendcodeCreatedEmbed = new Discord.MessageEmbed({
 				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 				color: 4289797,
@@ -927,7 +966,6 @@ client.on('message', msg => {
 			return;
 		}
 		let weekPrices = userData[msg.author.id].weekPrices;
-		let filledWeekPrices = userData[msg.author.id].filledWeekPrices;
 		let weeks = [
 			["Mon", 1],
 			["Tue", 3],
@@ -951,11 +989,60 @@ client.on('message', msg => {
 			})).concat([
 				{
 					name: "turnipprophet.io - Predictions link",
-					value: `**https://turnipprophet.io?prices=${filledWeekPrices.join('.')}**\nPlease note that turnipprophet.io was NOT made by me, and leads to said external site. I don't have control over the things shown there, only about the price input.`,
+					value: `**${userData[msg.author.id].turnipProphetURL}**\nPlease note that turnipprophet.io was NOT made by me, and leads to said external site. I don't have control over the things shown there, only about the price input.`,
 					inline: false}
 			])
 		});
 		sendDismissableMessage(msg.channel, weekStatEmbed, msg.author.id);
+		return;
+	}
+	// Just the turnip prophet link
+	if (msg.content.startsWith(msgPrefix + prophetInvoker)) {
+		if (!userData.hasOwnProperty(msg.author.id)) {
+			const noProfileProphetEmbed = new Discord.MessageEmbed({
+				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+				color: 16312092,
+				description: `⚠ You didn't register a profile with me so far.`
+			});
+			sendDismissableMessage(msg.channel, noProfileProphetEmbed, msg.author.id);
+			return;
+		}
+		const prophetLinkEmbed = new Discord.MessageEmbed({
+			author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+			title: "This week's predictions",
+			description: `**${userData[msg.author.id].turnipProphetURL}**`,
+			color: 16711907,
+		});
+		sendDismissableMessage(msg.channel, prophetLinkEmbed, msg.author.id);
+		return;
+	}
+	// Retroactively setting your last pattern
+	if (msg.content.startsWith(msgPrefix + lastPatternInvoker)) {
+		if (!userData.hasOwnProperty(msg.author.id)) {
+			const noProfilePatternEmbed = new Discord.MessageEmbed({
+				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+				color: 16312092,
+				description: `⚠ You didn't register a profile with me so far.`
+			});
+			sendDismissableMessage(msg.channel, noProfilePatternEmbed, msg.author.id);
+			return;
+		}
+		const knownPatterns = [ // Fluctuating: 0, Large Spike: 1, Decreasing: 2, Small Spike: 3
+			["fluctuating", "📊", "0"],
+			["large_spike", "💸", "1"],
+			["decreasing", "📉", "2"],
+			["small_spike", "📈", "3"],
+		];
+		let requestedPattern = msg.content.substr(msgPrefix.length + lastPatternInvoker.length).trim().replace(" ", "_").toLowerCase();
+		let foundPattern = knownPatterns.findIndex(el => el.includes(requestedPattern));
+		userData[msg.author.id].lastWeekPattern = foundPattern;
+		const changedPatternEmbed = new Discord.MessageEmbed({
+			author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+			color: 4289797,
+			description: `✅ I've changed your pattern to ${foundPattern > -1 ? knownPatterns[foundPattern][0] : "\"I don't know.\""}.`
+		});
+		sendDismissableMessage(msg.channel, changedPatternEmbed, msg.author.id);
+		return;
 	}
 
 	// actual stonks handling ("default case")
