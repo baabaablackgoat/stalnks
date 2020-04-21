@@ -91,27 +91,6 @@ function saveData() {
 }
 let saveInterval = setInterval(saveData, 60000);
 
-// Removes entries from the priceData
-// TODO This should be deprecated - the price getter should auto-delete, right?
-/*
-function removeExpiredEntries() {
-	let del_counter = 0;
-	for (var key in priceData) {
-		if (priceData.hasOwnProperty(key)) {
-			if (priceData[key].timeLeft() <= 0){
-				delete priceData[key];
-				del_counter++;
-			}
-		}
-	}
-	if (del_counter > 0) {
-		console.debug(`Removed ${del_counter} expired entries`);
-		sendBestStonksToUpdateChannel(); // TODO This might be running on an interval instead
-	}
-} 
-let expiredInterval = setInterval(removeExpiredEntries, 60000);
-*/
-
 // get the best stonks
 let best_stonks = [null, null, null];
 function updateBestStonks() {
@@ -427,6 +406,52 @@ function sendBestStonksToUpdateChannel() {
 			});
 	}
 }
+
+function stringOrArrayToInterval(input = undefined) { // return -1 on invalid intervals
+	const WEEKDAYS = [['sun', 'sunday'], ['mon', 'monday'], ['tue', 'tuesday'], ['wed', 'wednesday'], ['thu', 'thursday'], ['fri', 'friday'], ['sat', 'saturday']];
+	if (!input) return -1;
+	if (typeof input != 'string') input = input.join(" ");
+	input = input.toLowerCase();
+	
+	// Check if just a number was specified (legacy system)
+	let numberCheck = parseInt(input);
+	if (!isNaN(numberCheck)) { // just a number was supplied
+		if (numberCheck > 12 || numberCheck < 0) return -1; // Invalid interval
+		return numberCheck;
+	}
+
+	// Check for strings
+	let foundInterval;
+	for (let i = 0; i < WEEKDAYS.length; i++) {
+		if (WEEKDAYS[i].some(str => input.includes(str))) {
+			foundInterval = i;
+			break;
+		}
+	}
+	if (foundInterval === undefined) return -1; // no valid day found
+	if (foundInterval !== 0) {
+		foundInterval *= 2;
+		if (input.includes("am") || input.includes("morning")) return foundInterval - 1; // EX: Wednesday AM would be Wed (3*2) - 1 ==> 5
+		else if (input.includes("pm") || input.includes("evening")) return foundInterval;
+		else return -1; // no am/pm supplied so no clue what timeframe is supposed to be targeted
+	}
+	return 0; // foundInterval will always be 0 when arriving here
+}
+
+function weekIntervalToString(interval) {
+	/* ugly code courtesy of baa
+	if (interval < 0 || interval > 12) throw new RangeError("Invalid interval specified");
+	const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+	if (interval === 0) return "Sunday";
+	return `${WEEKDAYS[Math.floor((interval - 1) / 2)]} ${interval % 2 === 1 ? 'AM' : 'PM'}`;
+	*/ 
+	let weekDayName = moment().day(Math.floor((interval + 1) / 2)).format('dddd');
+	if (interval != 0) {
+		weekDayName += interval % 2 ? ' AM' : ' PM';
+	}
+	return weekDayName;
+}
+
 let bestStonksUpdateInterval = setInterval(sendBestStonksToUpdateChannel, 5*60*1000); // update best prices every 5 minutes
 
 
@@ -1049,10 +1074,7 @@ client.on('message', msg => {
 
 	let tokens = msg.content.split(" ");
 	let interval;
-	if (tokens.length > 1) {
-		let rawInterval = tokens[1].toLowerCase();
-		interval = Number(rawInterval);
-	}
+	if (tokens.length > 1) interval = stringOrArrayToInterval(tokens.slice(1));
 	stonks_value = Number(tokens[0].substring(1));
 
 	if (isNaN(stonks_value)) return;
@@ -1084,26 +1106,36 @@ client.on('message', msg => {
 		sendDismissableMessage(msg.channel, invalidStalkPriceEmbed, msg.author.id);
 		return;
 	}
+
 	if (interval !== undefined) {
-		if (interval >= 0 && interval < 13) {
-			let weekDayName = moment().day(Math.floor(interval + 1) / 2).format('dddd');
-			if (interval != 0) {
-				weekDayName += interval % 2 ? ' AM' : ' PM';
-			}
-			userData[msg.author.id].weekPrices[interval] = stonks_value;
-			msg.channel.send({embed: {
-				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
-				color: 4289797,
-				description: `💰 updated listing: **${stonks_value} Bells** for ${weekDayName}`
-			}});
-		} else {
+		if (interval < 0) { // invalid interval
 			const invalidIntervalEmbed = new Discord.MessageEmbed({
 				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 				color: 16312092,
 				description: `⚠ Invalid interval specified.`
 			});
 			sendDismissableMessage(msg.channel, invalidIntervalEmbed, msg.author.id);
+			return;
 		}
+
+		let now_tz = moment().tz(userData[msg.author.id].timezone);
+		let maximumAcceptableInterval = now_tz.day() == 0 ? 0 : now_tz.day() * 2 - (now_tz.hour() < 12);
+		if (interval > maximumAcceptableInterval) {
+			const intervalInFutureEmbed = new Discord.MessageEmbed({
+				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+				color: 16312092,
+				description: `⚠ The specified interval is in the future!`
+			});
+			sendDismissableMessage(msg.channel, intervalInFutureEmbed, msg.author.id);
+			return;
+		}
+
+		userData[msg.author.id].weekPrices[interval] = stonks_value;
+		msg.channel.send({embed: {
+			author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+			color: 4289797,
+			description: `💰 updated listing: **${stonks_value} Bells** for ${weekIntervalToString(interval)}`
+		}});
 		return;
 	}
 
