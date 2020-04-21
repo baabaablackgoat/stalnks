@@ -1014,7 +1014,7 @@ client.on('message', msg => {
 			})).concat([
 				{
 					name: "turnipprophet.io - Predictions link",
-					value: `**${userData[msg.author.id].turnipProphetURL}**\nPlease note that turnipprophet.io was NOT made by me, and leads to said external site. I don't have control over the things shown there, only about the price input.`,
+					value: `**${userData[msg.author.id].turnipProphetURL}**\n\nPlease note that turnipprophet.io was NOT made by us, and leads to said external site. We don't have control over the things shown there, only about the price input.\nTurnipprophet was created by Mike Bryant: https://github.com/mikebryant/ac-nh-turnip-prices/`,
 					inline: false}
 			])
 		});
@@ -1035,7 +1035,7 @@ client.on('message', msg => {
 		const prophetLinkEmbed = new Discord.MessageEmbed({
 			author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 			title: "This week's predictions",
-			description: `**${userData[msg.author.id].turnipProphetURL}**`,
+			description: `**${userData[msg.author.id].turnipProphetURL}**\n\nPlease note that turnipprophet.io was NOT made by us, and leads to said external site. We don't have control over the things shown there, only about the price input.\nTurnipprophet was created by Mike Bryant: https://github.com/mikebryant/ac-nh-turnip-prices/`,
 			color: 16711907,
 		});
 		sendDismissableMessage(msg.channel, prophetLinkEmbed, msg.author.id);
