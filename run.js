@@ -472,6 +472,7 @@ const helpInvoker = 'help';
 const fcInvoker = 'friendcode ';
 const listInvoker = 'stonks';
 const removeInvoker = 'remove';
+const removeWeekPriceInvoker = 'intervalremove';
 const profileInvoker = 'profile';
 const queueInvoker = 'queue';
 const weekInvoker = 'week';
@@ -854,6 +855,46 @@ client.on('message', msg => {
 			description: `🗑 Your listing has been removed.`
 		});
 		sendDismissableMessage(msg.channel, selfListingRemovedEmbed, msg.author.id);
+		return;
+	}
+
+	// letting users remove their week price data
+	if (msg.content.startsWith(msgPrefix + removeWeekPriceInvoker)) {
+		if (!userData.hasOwnProperty(msg.author.id)) {
+			const noProfileWeekRemoveEmbed = new Discord.MessageEmbed({
+				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+				color: 16312092,
+				description: `⚠ You didn't register a profile with me so far.`
+			});
+			sendDismissableMessage(msg.channel, noProfileWeekRemoveEmbed, msg.author.id);
+			return;
+		}
+		let targetForDeletion = stringOrArrayToInterval(msg.content.substr(msgPrefix.length+removeWeekPriceInvoker.length).trim());
+		if (targetForDeletion < 0) {
+			const invalidIntervalWeekRemoveEmbed = new Discord.MessageEmbed({
+				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+				color: 16312092,
+				description: `⚠ You have specified an invalid interval.`
+			});
+			sendDismissableMessage(msg.channel, invalidIntervalWeekRemoveEmbed, msg.author.id);
+			return;
+		}
+		if (!userData[msg.author.id].weekPrices[targetForDeletion]) {
+			const noDataWeekRemoveEmbed = new Discord.MessageEmbed({
+				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+				color: 16312092,
+				description: `⚠ There doesn't seem to be any price stored for you at ${weekIntervalToString(targetForDeletion)}.`
+			});
+			sendDismissableMessage(msg.channel, noDataWeekRemoveEmbed, msg.author.id);
+			return;
+		}
+		const weekDataRemovedEmbed = new Discord.MessageEmbed({
+			author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+			color: 4289797,
+			description: `🚮 I've removed your price data at ${weekIntervalToString(targetForDeletion)}.`
+		});
+		sendDismissableMessage(msg.channel, weekDataRemovedEmbed, msg.author.id);
+		userData[msg.author.id].weekPrices[targetForDeletion] = '';
 		return;
 	}
 
