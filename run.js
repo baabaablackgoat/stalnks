@@ -479,6 +479,7 @@ const prophetInvoker = 'prophet';
 const lastPatternInvoker = 'pattern';
 const optOutPatternDMInvoker = 'optout';
 const optInPatternDMInvoker = 'optin';
+const removeAllPersonalDataInvoker = 'forgetme';
 const zoneListURL = "https://gist.github.com/baabaablackgoat/92f7408897f0f7e673d20a1301ca5bea";
 const lowercasedTimezones = moment.tz.names().map(tz => tz.toLowerCase());
 client.on('message', msg => {
@@ -1132,6 +1133,44 @@ client.on('message', msg => {
 		sendDismissableMessage(msg.channel, optedOutEmbed, msg.author.id);
 		return;
 	}
+
+	// Allowing users to remove all their currently stored data - including user profiles! (This will be saved on the next interval)
+	if (msg.content.startsWith(msgPrefix + removeAllPersonalDataInvoker)) {
+		if (!userData.hasOwnProperty(msg.author.id)) {
+			const noProfileDeleteDataEmbed = new Discord.MessageEmbed({
+				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+				color: 16312092,
+				description: `⚠ You don't seem to have any profile data with me, so there's nothing for me to wipe.`
+			});
+			sendDismissableMessage(msg.channel, noProfileDeleteDataEmbed, msg.author.id);
+			return;
+		}
+		let areYouSureDeleteUserEmbed = new Discord.MessageEmbed({
+			author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+			color: "RED",
+			description: `⚠ Are you absolutely sure you wish to delete your data? **This action is irreversible!**\nTo confirm your data deletion, react with 🚮 in the next 30 seconds.`
+		});
+		msg.channel.send(areYouSureDeleteUserEmbed)
+			.then(deleteConfirmMsg => {
+				deleteConfirmMsg.react('🚮')
+				const deleteDataReactionCollector = deleteConfirmMsg.createReactionCollector((r,u) => u.id == msg.author.id && r.emoji.name == '🚮', {time: 30*1000, max: 1});
+				deleteDataReactionCollector.on("end", (collected, reason) => {
+					if (reason != 'time' && collected.size == 1 && collected.first().emoji.name == '🚮') {
+						delete userData[msg.author.id];
+						if (priceData.hasOwnProperty(msg.author.id)) delete priceData[msg.author.id];
+						if (queueData.hasOwnProperty(msg.author.id)) delete queueData[msg.author.id];
+						areYouSureDeleteUserEmbed.description = "🚮 Your user specific data has been removed. Any remaining traces will be deleted with the next save interval (every 5 minutes).";
+						deleteConfirmMsg.edit(areYouSureDeleteUserEmbed);
+					}
+					else {
+						areYouSureDeleteUserEmbed.description = "⌚ Deletion request has timed out.";
+						deleteConfirmMsg.edit(areYouSureDeleteUserEmbed);
+					}
+				});
+			}).catch(err => console.log(`User ${msg.user.tag} requested data deletion, but it failed due to not being able to send a message. Please follow up with this user. Details: ${err}`));
+		return;
+	}
+
 
 	// actual stonks handling ("default case")
 
