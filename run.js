@@ -1064,7 +1064,7 @@ client.on('message', msg => {
 		const changedPatternEmbed = new Discord.MessageEmbed({
 			author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 			color: 4289797,
-			description: `✅ I've changed your pattern to ${foundPattern > -1 ? knownPatterns[foundPattern][0] : "\"I don't know.\""}.`
+			description: `✅ I've changed your pattern from last week to ${foundPattern > -1 ? knownPatterns[foundPattern][0] : "\"I don't know.\""}.`
 		});
 		sendDismissableMessage(msg.channel, changedPatternEmbed, msg.author.id);
 		return;
