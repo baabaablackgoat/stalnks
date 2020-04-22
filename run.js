@@ -146,46 +146,47 @@ function hasElevatedPermissions(member) {
 
 
 class userEntry { // there doesn't seem to be anything non-experimental for private fields
-	constructor(id, timezone, friendcode, weekUpdated, lastWeekPattern, _weekPrices) {
+	constructor(id, timezone, friendcode, weekUpdated, lastWeekPattern, _weekPrices, optInPatternDM) {
 		this.id = id;
 		this.timezone = timezone;
 		this.friendcode = friendcode;
 		this.weekUpdated = weekUpdated;
 		this.lastWeekPattern = lastWeekPattern; // Fluctuating: 0, Large Spike: 1, Decreasing: 2, Small Spike: 3, I don't know: any
 		this._weekPrices = _weekPrices;
+		this.optInPatternDM = optInPatternDM;
 	}
 	get weekPrices() {
 		let currWeek = moment().tz(this.timezone).week();
 		if (this.weekUpdated != currWeek) {
 			console.log(`Cleared week price data for ${this.id}.`);
 			this.lastWeekPattern = undefined;
-			// Asking for the previous pattern
-			client.users.fetch(this.id)
-				.then(user => {
-					const patternEmoji = {
-						large_spike: "💸",
-						small_spike: "📈",
-						fluctuating: "📊",
-						decreasing: "📉",
-					};
-					const patternNumbers = {fluctuating: 0, large_spike: 1, decreasing: 2, small_spike: 3};
-					const askForLastPatternEmbed = new Discord.MessageEmbed({
-						description: `It seems like you've entered turnip prices last week that have now run their course!\nDo you know which pattern your turnip prices were following **last week?**\nPlease use the reactions below to enter your pattern. If you don't know your pattern, you can ignore this message.\n\n${patternEmoji.large_spike} Large spike \n${patternEmoji.small_spike} Small spike \n${patternEmoji.fluctuating} Fluctuating \n${patternEmoji.decreasing} Decreasing`,
-						color: "LUMINOUS_VIVID_PINK",
-					});
-					user.send(askForLastPatternEmbed)
-						.then(sentMessage => {
-							for (let key in patternEmoji) { sentMessage.react(patternEmoji[key]); }
-							const patternCollector = sentMessage.createReactionCollector((r,u) => !u.bot && Object.values(patternEmoji).includes(r.emoji.name), {time: 5*60*1000, max: 1});
-							patternCollector.on("end", (collected, reason) => {
-								if (reason == 'time' || collected.size < 1) return;
-								this.lastWeekPattern = patternNumbers[Object.keys(patternEmoji).find(key => patternEmoji[key] == collected.first().emoji.name)];
-							});
-						})
-						.catch(err => console.log("Failed to message user to ask about last week's pattern: "+err));
-				})
-				.catch(err => console.log("Failed to lookup user to ask about last week's pattern: "+err));
-
+			if (this.optInPatternDM) { // Asking for the previous pattern
+				client.users.fetch(this.id)
+					.then(user => {
+						const patternEmoji = {
+							large_spike: "💸",
+							small_spike: "📈",
+							fluctuating: "📊",
+							decreasing: "📉",
+						};
+						const patternNumbers = {fluctuating: 0, large_spike: 1, decreasing: 2, small_spike: 3};
+						const askForLastPatternEmbed = new Discord.MessageEmbed({
+							description: `It seems like you've entered turnip prices last week that have now run their course!\nDo you know which pattern your turnip prices were following **last week?**\nPlease use the reactions below to enter your pattern. If you don't know your pattern, you can ignore this message.\n\n${patternEmoji.large_spike} Large spike \n${patternEmoji.small_spike} Small spike \n${patternEmoji.fluctuating} Fluctuating \n${patternEmoji.decreasing} Decreasing`,
+							color: "LUMINOUS_VIVID_PINK",
+						});
+						user.send(askForLastPatternEmbed)
+							.then(sentMessage => {
+								for (let key in patternEmoji) { sentMessage.react(patternEmoji[key]); }
+								const patternCollector = sentMessage.createReactionCollector((r,u) => !u.bot && Object.values(patternEmoji).includes(r.emoji.name), {time: 5*60*1000, max: 1});
+								patternCollector.on("end", (collected, reason) => {
+									if (reason == 'time' || collected.size < 1) return;
+									this.lastWeekPattern = patternNumbers[Object.keys(patternEmoji).find(key => patternEmoji[key] == collected.first().emoji.name)];
+								});
+							})
+							.catch(err => console.log("Failed to message user to ask about last week's pattern: "+err));
+					})
+					.catch(err => console.log("Failed to lookup user to ask about last week's pattern: "+err));
+			}
 			this._weekPrices = Array(13).fill('');
 		}
 		this.weekUpdated = currWeek;
@@ -209,7 +210,8 @@ class userEntry { // there doesn't seem to be anything non-experimental for priv
 			obj.friendcode,
 			obj.hasOwnProperty('weekUpdated') ? obj.weekUpdated : moment().tz(obj.timezone).week(),
 			obj.hasOwnProperty('lastWeekPattern') ? obj.lastWeekPattern : undefined,
-			obj.hasOwnProperty('_weekPrices') ? obj._weekPrices : Array(13).fill('')
+			obj.hasOwnProperty('_weekPrices') ? obj._weekPrices : Array(13).fill(''),
+			obj.hasOwnProperty('optInPatternDM') ? obj.optInPatternDM : true
 		);
 	}
 }
@@ -475,6 +477,8 @@ const queueInvoker = 'queue';
 const weekInvoker = 'week';
 const prophetInvoker = 'prophet';
 const lastPatternInvoker = 'pattern';
+const optOutPatternDMInvoker = 'optout';
+const optInPatternDMInvoker = 'optin';
 const zoneListURL = "https://gist.github.com/baabaablackgoat/92f7408897f0f7e673d20a1301ca5bea";
 const lowercasedTimezones = moment.tz.names().map(tz => tz.toLowerCase());
 client.on('message', msg => {
@@ -653,7 +657,7 @@ client.on('message', msg => {
 			}
 		}
 		if (userData.hasOwnProperty(msg.author.id)) userData[msg.author.id].timezone = timezone;
-		else userData[msg.author.id] = new userEntry(msg.author.id, timezone, null, null, null, null);
+		else userData[msg.author.id] = new userEntry(msg.author.id, timezone, null, null, null, null, true);
 		if (inaccurateTimezones.includes(timezone)) {
 			const confirmDangerousTimezoneSetEmbed = new Discord.MessageEmbed({
 				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
@@ -714,7 +718,7 @@ client.on('message', msg => {
 			sendDismissableMessage(msg.channel, friendcodeAddedEmbed, msg.author.id);
 			return;
 		} else {
-			userData[msg.author.id] = new userEntry(msg.author.id, null, fc, null, null, null);
+			userData[msg.author.id] = new userEntry(msg.author.id, null, fc, null, null, null, true);
 			const profileWithFriendcodeCreatedEmbed = new Discord.MessageEmbed({
 				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 				color: 4289797,
@@ -1067,6 +1071,65 @@ client.on('message', msg => {
 			description: `✅ I've changed your pattern from last week to ${foundPattern > -1 ? knownPatterns[foundPattern][0] : "\"I don't know.\""}.`
 		});
 		sendDismissableMessage(msg.channel, changedPatternEmbed, msg.author.id);
+		return;
+	}
+	// Opt-out of pattern dms
+	if (msg.content.startsWith(msgPrefix + optOutPatternDMInvoker)) {
+		if (!userData.hasOwnProperty(msg.author.id)) {
+			const noProfileOptOutEmbed = new Discord.MessageEmbed({
+				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+				color: 16312092,
+				description: `⚠ You didn't register a profile with me so far - you won't be DM'ed unless you save prices with me.`
+			});
+			sendDismissableMessage(msg.channel, noProfileOptOutEmbed, msg.author.id);
+			return;
+		}
+		if (userData[msg.author.id].optInPatternDM == false) {
+			const alreadyOptedOutEmbed = new Discord.MessageEmbed({
+				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+				color: 16312092,
+				description: `⚠ You already are opted out of pattern end-of-week DMs.`
+			});
+			sendDismissableMessage(msg.channel, alreadyOptedOutEmbed, msg.author.id);
+			return;
+		}
+		userData[msg.author.id].optInPatternDM = false;
+		const optedOutEmbed = new Discord.MessageEmbed({
+			author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+			color: 4289797,
+			description: `👋 You have opted out of pattern end-of-week DMs. If you wish to recieve pattern question DMs again, use ${msgPrefix + optInPatternDMInvoker}.`
+		});
+		sendDismissableMessage(msg.channel, optedOutEmbed, msg.author.id);
+		return;
+	}
+
+	// Opt-in to pattern dms
+	if (msg.content.startsWith(msgPrefix + optInPatternDMInvoker)) {
+		if (!userData.hasOwnProperty(msg.author.id)) {
+			const noProfileOptInEmbed = new Discord.MessageEmbed({
+				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+				color: 16312092,
+				description: `⚠ You didn't register a profile with me so far, or more likely asked to remove it - I can't DM you unless you reinstate your profile.`
+			});
+			sendDismissableMessage(msg.channel, noProfileOptInEmbed, msg.author.id);
+			return;
+		}
+		if (userData[msg.author.id].optInPatternDM == true) {
+			const alreadyOptedOutEmbed = new Discord.MessageEmbed({
+				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+				color: 16312092,
+				description: `⚠ You already are receiving pattern end-of-week DMs.`
+			});
+			sendDismissableMessage(msg.channel, alreadyOptedOutEmbed, msg.author.id);
+			return;
+		}
+		userData[msg.author.id].optInPatternDM = true;
+		const optedOutEmbed = new Discord.MessageEmbed({
+			author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+			color: 4289797,
+			description: `📝 You have opted in to recieve pattern end-of-week DMs. If you wish to stop getting these messages, use ${msgPrefix + optOutPatternDMInvoker}.`
+		});
+		sendDismissableMessage(msg.channel, optedOutEmbed, msg.author.id);
 		return;
 	}
 
