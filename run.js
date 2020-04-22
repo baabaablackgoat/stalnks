@@ -1145,6 +1145,15 @@ client.on('message', msg => {
 			sendDismissableMessage(msg.channel, noProfileDeleteDataEmbed, msg.author.id);
 			return;
 		}
+		if (priceData.hasOwnProperty(msg.author.id) || queueData.hasOwnProperty(msg.author.id)) {
+			const cannotDeleteDataRightNowEmbed = new Discord.MessageEmbed({
+				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+				color: 16312092,
+				description: `⚠ It seems like you currently either have an active price or an active queue.\nI cannot delete your data while either is still ongoing. Please try again later.`
+			});
+			sendDismissableMessage(msg.channel, cannotDeleteDataRightNowEmbed, msg.author.id);
+			return;
+		}
 		let areYouSureDeleteUserEmbed = new Discord.MessageEmbed({
 			author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 			color: "RED",
@@ -1152,13 +1161,11 @@ client.on('message', msg => {
 		});
 		msg.channel.send(areYouSureDeleteUserEmbed)
 			.then(deleteConfirmMsg => {
-				deleteConfirmMsg.react('🚮')
+				deleteConfirmMsg.react('🚮');
 				const deleteDataReactionCollector = deleteConfirmMsg.createReactionCollector((r,u) => u.id == msg.author.id && r.emoji.name == '🚮', {time: 30*1000, max: 1});
 				deleteDataReactionCollector.on("end", (collected, reason) => {
 					if (reason != 'time' && collected.size == 1 && collected.first().emoji.name == '🚮') {
 						delete userData[msg.author.id];
-						if (priceData.hasOwnProperty(msg.author.id)) delete priceData[msg.author.id];
-						if (queueData.hasOwnProperty(msg.author.id)) delete queueData[msg.author.id];
 						areYouSureDeleteUserEmbed.description = "🚮 Your user specific data has been removed. Any remaining traces will be deleted with the next save interval (every 5 minutes).";
 						deleteConfirmMsg.edit(areYouSureDeleteUserEmbed);
 					}
