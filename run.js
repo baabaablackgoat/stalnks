@@ -193,7 +193,7 @@ class userEntry { // there doesn't seem to be anything non-experimental for priv
 		return this._weekPrices;
 	}
 	get filledWeekPrices() {
-		let lastFilledIndex = this.weekPrices.map((k) => Boolean(k)).lastIndexOf(true) + 1; // TODO over here
+		let lastFilledIndex = this.weekPrices.map((k) => Boolean(k)).lastIndexOf(true) + 1; 
 		return this.weekPrices.slice(0, lastFilledIndex);
 	}
 
@@ -285,24 +285,108 @@ class priceEntry {
 const queueAcceptingMinutes = parseInt(getEnv('DISCORD_STONKS_QUEUEACCEPTINGMINUTES', '30'));
 const queueToSellMinutes = parseInt(getEnv('DISCORD_STONKS_QUEUETOSELLMINUTES', '7'));
 
+const queueMultiGroupSize = parseInt(getEnv('DISCORD_STONKS_QUEUEMULTIGROUPSIZE', '3'));
+
 class queueEntry {
 	constructor(userId) {
 		this.id = userId; // to allow for self-deletion
 		this.dodoCode = null;
 		this.addlInformation = "No additional information specified.";
-		this.userQueue = [];
 		this.currentUserProcessed = null;
 		this.acceptingEntries = true;
+		this._rawQueues = {
+			single: [],
+			some: [], // <= 3
+			multi: [], // 4+
+		};
+		this.queuePositions = {single: 0, some: 0, multi: 0};
+		this.processingGroup = {
+			groupType: false,
+			firstIndex: -1,
+			currentIndex: -1,
+		};
+		this.previousUserProcessed = null;
 	}
 
-	userQueuePosition(userId) {
+	/*
+	get userQueue() { // TODO fix
+		return this._rawQueues.single.concat(this._rawQueues.some).concat(this._rawQueues.multi);
+	}
+
+	userQueuePosition(userId) { // TODO - must be updated to reflect the new queue position!
 		return this.userQueue.findIndex(q => q.id == userId);
+	}
+	*/
+
+	addUserToQueue(userObject, type) {
+		if (!['single', 'some', 'multi'].includes(type)) return; // Double check for valid type
+		// Prevent users from queueing up multiple times (also across queues! that would be dumb.)
+		// ISSUE This line can probably be replaced with a simple "position check" for -1, once implemented.
+		if (this._rawQueues.single.filter(e => e.user.id == userObject.id).length > 0 || this._rawQueues.some.filter(e => e.user.id == userObject.id).length > 0 || this._rawQueues.multi.filter(e => e.userObject.id == user.id).length > 0) return;
+		// Make sure the user is DM-able, and send confirmation message.
+		let addedToQueueEmbed = new Discord.MessageEmbed({
+			color: 16711907,
+			description: `You have been added to the queue for a maximum of ${type == 'single' ? '1' : type == 'some' ? "3" : "unlimited"} visit(s).\nYour estimated wait time is **⏳ minutes**.\nIf you wish to leave the queue, click 👋.` 
+		});
+		userObject.send(addedToQueueEmbed)
+			.then(confirmationMsg => {
+				// Add the user to the respective raw queue, and fire an update on the queue (in case it is empty to immediately allow the user to join)
+				this._rawQueues[type].push(new queueUserEntry(userObject, this, type));
+				this.update();
+				// Get the estimated wait-time and put it in the message
+				addedToQueueEmbed.description = addedToQueueEmbed.description.replace("⏳", this._rawQueues[type].find(e => e.user.id == userObject.id).estimatedWaitTime());
+				confirmationMsg.edit(addedToQueueEmbed);
+				// Allow user to un-queue
+				confirmationMsg.react('👋');
+				const leaveQueueCollector = confirmationMsg.createReactionCollector((r,u) => !u.bot && r.emoji.name == '👋', {time: queueAcceptingMinutes*60*1000, max: 1});
+				leaveQueueCollector.on('collect', (leaveR, leavingUser) => {
+					if (!queueData.hasOwnProperty(msg.author.id)) return; // just in case the queue was already deleted
+					let foundUserIndex = queueData[msg.author.id]._rawQueues[type].findIndex(e => e.user.id == leavingUser.id);
+					if (foundUserIndex >= 0 && foundUserIndex > this.queuePositions[type]) {
+						queueData[msg.author.id]._rawQueues[type].splice(foundUserIndex, 1);
+						leavingUser.send({embed: {
+							color: 16711907,
+							description: `You have been removed from the queue.`
+						}});
+					}
+				});
+
+			}).catch(err => console.log("Couldn't add "+ userObject.tag +" to queue - most likely has DMs disabled. Details: "+ err));
+	}
+
+	remainingUsersInSubqueue(type) {
+		return this._rawQueues[type].length - this.queuePositions[type];
+	}
+
+	get nextUserIndexFromProcessingGroup() {
+		if (!this.processingGroup.type) throw new ReferenceError("No processing group exists, but the next user in the group was requested");
+		let loopedOver = false;
+		let searchingIndex = this.processingGroup.currentIndex;
+		for (let _ = 0; _ < 10; _++) { // limited to 10 to prevent accidental infinite loops like with while(true)
+			searchingIndex++;
+			if (this._rawQueues[type].length <= searchingIndex || this.processingGroup.firstIndex + 2 < searchingIndex) {
+				if (loopedOver) return -1; // This processing group is done - no further entries need to be processed
+				searchingIndex = this.processingGroup.firstIndex; // loop back once to check the previous users in the group
+				loopedOver = true;
+				continue;
+			}
+			if (!this._rawQueues[type][searchingIndex].fulfilled) return searchingIndex;
+		}
+		throw new Error("Something went wrong while attempting to find the next user in the current processing group.");
+	}
+
+	get nextUserEntry() { // Note: this does NOT advance the queue or create new processing groups, this.update() does that! This is used to message the upcoming user instead
+		if (this.processingGroup.type && this.nextUserIndexFromProcessingGroup > -1) return this._rawQueues[this.processingGroup.type][this.nextUserIndexFromProcessingGroup];
+		if (this.remainingUsersInSubqueue('single') > 0) return this._rawQueues.single[this.queuePositions.single];
+		if (this.remainingUsersInSubqueue('some') > 0) return this._rawQueues.some[this.queuePositions.some];
+		if (this.remainingUsersInSubqueue('multi') > 0) return this._rawQueues.multi[this.queuePositions.multi];
+		return false;
 	}
 
 	update(){
 		if (this.currentUserProcessed) return;
-		if (this.userQueue.length == 0) {
-			if (!this.acceptingEntries) { // Queue is officially closed
+		if (!remainingUsersInSubqueue('single') && !remainingUsersInSubqueue('some') && !remainingUsersInSubqueue('multi')) {
+			if (!this.acceptingEntries) { // Queue is now closed and finished, too
 				const queueIsClosedEmbed = new Discord.MessageEmbed({
 					color: 16711907,
 					description: `Thank you for sharing your turnip prices with everyone! It looks like the queue you started has come to an end. If you like, you can:`,
@@ -322,35 +406,128 @@ class queueEntry {
 			return;
 		}
 		if (!this.dodoCode) return;
-		this.currentUserProcessed = this.userQueue.shift();
-		this.currentUserProcessed.send({embed:{
+		
+		if (this.processingGroup.type) { // currently in a subgroup
+			if (this.nextUserIndexFromProcessingGroup > -1) { // Was an unfulfilled user in the current processing group found?
+				this.currentUserProcessed = this._rawQueues[this.processingGroup.type][this.nextUserIndexFromProcessingGroup];
+				this.processingGroup.currentIndex = this.nextUserIndexFromProcessingGroup;
+				this.currentUserProcessed.initiateTurn();
+				return;
+			} else { // Processing group is done - reset it
+				this.processingGroup.type = false;
+				this.processingGroup.firstIndex = -1;
+				this.processingGroup.currentIndex = -1;
+			}
+		}
+		if (this.remainingUsersInSubqueue('single') > 0) {
+			this.currentUserProcessed = this._rawQueues.single[this.queuePositions.single];
+			this.currentUserProcessed.initiateTurn();
+			return;
+		}
+		if (this.remainingUsersInSubqueue('some') > 0) {
+			this.processingGroup.type = 'some';
+			this.processingGroup.firstIndex = this.processingGroup.currentIndex = this.queuePositions.some;
+			this.currentUserProcessed = this._rawQueues.some[this.queuePositions.some];
+			this.currentUserProcessed.initiateTurn();
+			return;
+		}
+		if (this.remainingUsersInSubqueue('multi') > 0) {
+			this.processingGroup.type = 'multi';
+			this.processingGroup.firstIndex = this.processingGroup.currentIndex = this.queuePositions.multi;
+			this.currentUserProcessed = this._rawQueues.multi[this.queuePositions.multi];
+			this.currentUserProcessed.initiateTurn();
+			return;
+		}
+	}
+}
+
+class queueUserEntry {
+	constructor(userObject, queue, type) {
+		this.user = userObject;
+		this.queue = queue;
+		switch (type) {
+			case "single":
+				this.maxVisits = 1;
+				break;
+			case "some":
+				this.maxVisits = 3;
+				break;
+			case "multi":
+				this.maxVisits = Infinity;
+				break;
+			default:
+				throw new RangeError("Attempted to create an invalid queue user entry - supplied type "+type+" is invalid");
+		}
+		this.type = type;
+		this.grantedVisits = 0;
+		this.fulfilled = false;
+	}
+
+	sendUpNextMessage() {
+		const userUpNextEmbed = new Discord.MessageEmbed({
+			title: `Your turn #${this.grantedVisits + 1} will be starting soon!`,
+			color: 16312092,
+			description: `The user in front of you in the queue has just started their turn.\nYour turn will commence in at most ${queueToSellMinutes} minutes. \nPlease prepare yourself to enter the Dodo-Code™, and don't forget your turnips!`
+		});
+		this.userObject.send(userUpNextEmbed);
+	}
+
+	initiateTurn() {
+		if (this.grantedVisits >= this.maxVisits) {
+			console.error(`${this.user.tag} had initiateTurn() called, but has reached it's maximum visit amount (${this.grantedVisits}/${this.maxVisits}). Double check the program flow. Skipping user and initiating next turn`);
+			this.queue.update();
+			return;
+		}
+		const isLastVisit = this.grantedVisits >= this.maxVisits;
+		let yourTurnEmbed = new Discord.MessageEmbed({
 			title: "⏰ It's your turn!",
 			color: 16312092,
-			description: `The Dodo Code is **${this.dodoCode}**.\nYou have **${queueToSellMinutes} minutes** to connect, sell your turnips, and leave the island.\nOnce your timeslot expires, the next user in the queue will be automatically messaged.\nShould you be done early, please click 👍 to notify that you're done.\nIf you wish to reconnect later to sell more, click 🔁 to be added to the queue again. *Please note that this also ends your turn!*`
-		}}).then(msg => {
-			msg.react('👍');
-			msg.react('🔁');
-			const doneCollector = msg.createReactionCollector((r,u) => !u.bot && ['👍','🔁'].includes(r.emoji.name), {time: queueToSellMinutes*60*1000, max: 1});
+			description: `The Dodo Code is **${this.queue.dodoCode}**.\nYou have **${queueToSellMinutes} minutes** to connect, sell your turnips, and leave the island.\nOnce your timeslot expires, the next user in the queue will be automatically messaged.\nShould you be done early, please click 👍 to notify that you're done.${isLastVisit ? "" : "\nIf you wish to reconnect later to sell more, click 🔁 to be added to the queue again. *Please note that this also ends your turn!*"}`,
+			fields: [
+				{name: "Visit #", inline: true, value: this.grantedVisits + 1},
+				{name: "Remaining visits", inline: true, value: this.maxVisits - (this.grantedVisits + 1)}
+			]
+		});
+		this.userObject.send(yourTurnEmbed).then(turnMessage => {
+			this.grantedVisits++;
+			if (this.queue.nextUserEntry) this.queue.nextUserEntry.sendUpNextMessage(); // attempt to send message to next user in queue
+			const reactionCollectorFilter = isLastVisit ? (r,u) => !u.bot && r.emoji.name == '👍' : (r,u) => !u.bot && ['👍','🔁'].includes(r.emoji.name);
+			turnMessage.react('👍');
+			if (!isLastVisit) turnMessage.react('🔁');
+			const doneCollector = turnMessage.createReactionCollector(reactionCollectorFilter, {time: queueToSellMinutes*60*1000, max: 1});
 			doneCollector.on('end', (collected, reason) => {
-				if (reason != 'time' && collected.size != 0 && collected.first().emoji.name == '🔁') {
-					this.userQueue.push(this.currentUserProcessed);
-					msg.channel.send({embed:{
+				if (reason != 'time' && !isLastVisit && collected.size != 0 && collected.first().emoji.name == '🔁') {
+					this.queue.addUserToQueue(this.userObject);
+					turnMessage.channel.send({embed:{
 						color: 16711907,
-						description: `🔁 You have been added back into the queue at position ${this.userQueuePosition(msg.channel.recipient.id) + 1}. Your turn is over for now.`
+						description: `🔁 You have been added back into the queue.\nYour turn is over for now, but will continue soon! **Please prepare for your next visit immediately.**`
 					}});
 				} else {
-					msg.channel.send({embed:{
+					this.fulfilled = true;
+					this.queue.queuePositions[this.type]++;
+					turnMessage.channel.send({embed:{
 						color: 4886754,
-						description: `🤚 Your turn is now over.`
+						description: `🤚 Your turn is now over. Thanks for joining the queue!`
 					}});
 				}
-				this.currentUserProcessed = null;
-				this.update();
+				this.queue.previousUserProcessed = this.queue.currentUserProcessed;
+				this.queue.currentUserProcessed = null;
+				this.queue.update();
 			});
+
 		}).catch(err => {
 			console.log("Failed to message a user the dodo code, skipping user: "+err);
-			this.update();
+			this.currentUserProcessed = null;
+			this.queue.update();
 		});
+	}
+
+	estimatedWaitTime() { // TODO fix this to be more accurate cause this shit ain't accurate mate
+		let worstEstimate;
+		worstEstimate += this.type == 'single' ? (remainingUsersInSubqueue('single') - 1) * queueToSellMinutes : remainingUsersInSubqueue('single') * queueToSellMinutes;
+		worstEstimate += this.type == 'some' ? (remainingUsersInSubqueue('some') - 1) * queueToSellMinutes * 3 : remainingUsersInSubqueue('some') * queueToSellMinutes * 3;
+		worstEstimate += this.type == 'multi' ? (remainingUsersInSubqueue('multi') - 1) * queueToSellMinutes * 7 : remainingUsersInSubqueue('multi') * queueToSellMinutes * 7;
+		return `${Math.floor(worstEstimate * 0.66)} - ${worstEstimate}`;
 	}
 }
 
@@ -441,12 +618,6 @@ function stringOrArrayToInterval(input = undefined) { // return -1 on invalid in
 }
 
 function weekIntervalToString(interval) {
-	/* ugly code courtesy of baa
-	if (interval < 0 || interval > 12) throw new RangeError("Invalid interval specified");
-	const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-	if (interval === 0) return "Sunday";
-	return `${WEEKDAYS[Math.floor((interval - 1) / 2)]} ${interval % 2 === 1 ? 'AM' : 'PM'}`;
-	*/ 
 	let weekDayName = moment().day(Math.floor((interval + 1) / 2)).format('dddd');
 	if (interval != 0) {
 		weekDayName += interval % 2 ? ' AM' : ' PM';
@@ -963,48 +1134,19 @@ client.on('message', msg => {
 				});
 
 				// Create a message for users to react to to join the queue.
+				const joinEmoteList = ['☝', '✌' ,'🔁']; // modify this if you wanna change the emotes used
 				informationEmbed = new Discord.MessageEmbed();
 				informationEmbed.author = {name: msg.member.displayName, icon_url: msg.author.avatarURL()};
 				informationEmbed.color = 16711907;
-				informationEmbed.description = `ℹ A queue is currently being set up for **${priceData.hasOwnProperty(msg.author.id) ? priceData[msg.author.id].price : "an unknown amount of"} Bells.**\n If you wish to join this queue, react to this message with 📈. **This queue will close in ${queueAcceptingMinutes} minutes.**`;
+				informationEmbed.description = `ℹ A queue is currently being set up for **${priceData.hasOwnProperty(msg.author.id) ? priceData[msg.author.id].price : "an unknown amount of"} Bells.**\n If you wish to join this queue, react to this message according to the amount of visits you are planning to do.  📈. \n\n**This queue will close in ${queueAcceptingMinutes} minutes.**`;
 				informationEmbed.timestamp = moment().utc().format();
 				msg.channel.send(informationEmbed).then(reactionJoinMsg => {
 						informationMessage = reactionJoinMsg;
-						reactionJoinMsg.react("📈");
-						const joinReactionCollector = reactionJoinMsg.createReactionCollector((r,u) => !u.bot && u.id != msg.author.id && r.emoji.name == "📈", {time: queueAcceptingMinutes*60*1000});
+						for (let i = 0; i < joinEmoteList.length; i++) {reactionJoinMsg.react(joinEmoteList[i]);}
+						const joinReactionCollector = reactionJoinMsg.createReactionCollector((r,u) => !u.bot && u.id != msg.author.id && joinEmoteList.includes(r.emoji.name), {time: queueAcceptingMinutes*60*1000});
 						joinReactionCollector.on('collect', (reaction, reactingUser) => {
-							//Prevent users from queuing up multiple times
-							if (queueData[msg.author.id].userQueue.filter(e => e.id == reactingUser.id).length > 0) return;
-							//Add the reacting user to the queue and fire an update on the queue (in case it is empty to immediately allow the user to join)
-							let addedToQueueEmbed = new Discord.MessageEmbed({
-								color: 16711907,
-								description: `You have been added to the queue. Your position is [CALCULATING...].\nIf you wish to leave the queue, click 👋.` 
-							});
-							reactingUser.send(addedToQueueEmbed) // make sure first that DMs are enabled by this user then add them to the queue
-							.then(confirmationMsg => {
-								// Add user to queue and update the queue
-								queueData[msg.author.id].userQueue.push(reactingUser);
-								// Add the queue position
-								addedToQueueEmbed.description = addedToQueueEmbed.description.replace("[CALCULATING...]", queueData[msg.author.id].userQueuePosition(reactingUser.id) + 1); 
-								confirmationMsg.edit(addedToQueueEmbed);
-								// Update the queue
-								queueData[msg.author.id].update();
-								
-								// Users unqueueing from the queue
-								confirmationMsg.react('👋');
-								const leaveQueueCollector = confirmationMsg.createReactionCollector((r,u) => !u.bot && r.emoji.name == '👋', {time: queueAcceptingMinutes*60*1000, max: 1});
-								leaveQueueCollector.on('collect', (leaveR, leavingUser) => {
-									if (!queueData.hasOwnProperty(msg.author.id)) return; // just in case the queue was already deleted
-									let foundUserIndex = queueData[msg.author.id].userQueue.findIndex(queue_u => queue_u.id == leavingUser.id);
-									if (foundUserIndex >= 0) {
-										queueData[msg.author.id].userQueue.splice(foundUserIndex, 1);
-										leavingUser.send({embed: { // make sure first that DMs are enabled by this user then add them to the queue
-											color: 16711907,
-											description: `You have been removed from the queue.`
-										}});
-									}
-								});
-							}).catch(err => console.log("Failed to add reacting user to queue, aborting: "+err));
+							const userQueueTypeList = ['single', 'some', 'multi'];
+							queueData[msg.author.id].addUserToQueue(reactingUser, userQueueTypeList[joinEmoteList.indexOf(reaction.emoji.name)]);
 						});
 						joinReactionCollector.on('end', (collected, reason) => {
 							if (queueData.hasOwnProperty(msg.author.id)) queueData[msg.author.id].acceptingEntries = false;
