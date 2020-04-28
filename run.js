@@ -1121,11 +1121,11 @@ client.on('message', msg => {
 
 						// Update the queue info message to contain useful data.
 						if (informationMessage) {
-							informationEmbed.description = `ℹ If you wish to join this queue, react to this message with 📈. **This queue will close in ${queueAcceptingMinutes} minutes from creation.**`;
-							informationEmbed.fields = [
+							informationEmbed.description = `ℹ If you wish to join this queue, react to this message with the according emote. **This queue will close in ${queueAcceptingMinutes} minutes from creation.**`;
+							informationEmbed.fields.push([
 								{name: "Stalk price", value: priceData.hasOwnProperty(msg.author.id) ? priceData[msg.author.id].price + " Bells" : "Unknown", inline: false},
 								{name: "Additional information", value: queueData[msg.author.id].addlInformation, inline: false}
-							];
+							]);
 							informationMessage.edit(informationEmbed);
 						}
 						// Update said queue to allow processing of users.
@@ -1138,7 +1138,12 @@ client.on('message', msg => {
 				informationEmbed = new Discord.MessageEmbed();
 				informationEmbed.author = {name: msg.member.displayName, icon_url: msg.author.avatarURL()};
 				informationEmbed.color = 16711907;
-				informationEmbed.description = `ℹ A queue is currently being set up for **${priceData.hasOwnProperty(msg.author.id) ? priceData[msg.author.id].price : "an unknown amount of"} Bells.**\n If you wish to join this queue, react to this message according to the amount of visits you are planning to do.  📈. \n\n**This queue will close in ${queueAcceptingMinutes} minutes.**`;
+				informationEmbed.description = `ℹ A queue is currently being set up for **${priceData.hasOwnProperty(msg.author.id) ? priceData[msg.author.id].price : "an unknown amount of"} Bells.**\n If you wish to join this queue, react to this message according to the amount of visits you are planning to do.\n\n**This queue will close in ${queueAcceptingMinutes} minutes.**`;
+				informationEmbed.fields = [
+					{name:joinEmoteList[0], value: "1 visit only", inline: true},
+					{name:joinEmoteList[1], value: "2-3 visits", inline: true},
+					{name:joinEmoteList[2], value: "4+ visits", inline: true}
+				];
 				informationEmbed.timestamp = moment().utc().format();
 				msg.channel.send(informationEmbed).then(reactionJoinMsg => {
 						informationMessage = reactionJoinMsg;
