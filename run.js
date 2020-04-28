@@ -285,7 +285,7 @@ class priceEntry {
 const queueAcceptingMinutes = parseInt(getEnv('DISCORD_STONKS_QUEUEACCEPTINGMINUTES', '30'));
 const queueToSellMinutes = parseInt(getEnv('DISCORD_STONKS_QUEUETOSELLMINUTES', '7'));
 
-const queueMultiGroupSize = parseInt(getEnv('DISCORD_STONKS_QUEUEMULTIGROUPSIZE', '3'));
+const queueMultiGroupSize = parseInt(getEnv('DISCORD_STONKS_QUEUEMULTIGROUPSIZE', '3')); // TODO actually use this!
 
 class queueEntry {
 	constructor(userId) {
@@ -364,7 +364,7 @@ class queueEntry {
 		let searchingIndex = this.processingGroup.currentIndex;
 		for (let _ = 0; _ < 10; _++) { // limited to 10 to prevent accidental infinite loops like with while(true)
 			searchingIndex++;
-			if (this._rawQueues[type].length <= searchingIndex || this.processingGroup.firstIndex + 2 < searchingIndex) {
+			if (this._rawQueues[type].length <= searchingIndex || this.processingGroup.firstIndex + (queueMultiGroupSize - 1) < searchingIndex) {
 				if (loopedOver) return -1; // This processing group is done - no further entries need to be processed
 				searchingIndex = this.processingGroup.firstIndex; // loop back once to check the previous users in the group
 				loopedOver = true;
