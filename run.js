@@ -319,6 +319,7 @@ class queueEntry {
 	*/
 
 	addUserToQueue(userObject, type) {
+		if (!userObject) throw new Error("No user object specified: Userobject was "+userObject );
 		if (!['single', 'some', 'multi'].includes(type)) return; // Double check for valid type
 		// Prevent users from queueing up multiple times (also across queues! that would be dumb.)
 		// ISSUE This line can probably be replaced with a simple "position check" for -1, once implemented.
@@ -364,7 +365,7 @@ class queueEntry {
 		let searchingIndex = this.processingGroup.currentIndex;
 		for (let _ = 0; _ < 10; _++) { // limited to 10 to prevent accidental infinite loops like with while(true)
 			searchingIndex++;
-			if (this._rawQueues[type].length <= searchingIndex || this.processingGroup.firstIndex + (queueMultiGroupSize - 1) < searchingIndex) {
+			if (this._rawQueues[this.processingGroup.type].length <= searchingIndex || this.processingGroup.firstIndex + (queueMultiGroupSize - 1) < searchingIndex) {
 				if (loopedOver) return -1; // This processing group is done - no further entries need to be processed
 				searchingIndex = this.processingGroup.firstIndex; // loop back once to check the previous users in the group
 				loopedOver = true;
@@ -385,7 +386,7 @@ class queueEntry {
 
 	update(){
 		if (this.currentUserProcessed) return;
-		if (!remainingUsersInSubqueue('single') && !remainingUsersInSubqueue('some') && !remainingUsersInSubqueue('multi')) {
+		if (!this.remainingUsersInSubqueue('single') && !this.remainingUsersInSubqueue('some') && !this.remainingUsersInSubqueue('multi')) {
 			if (!this.acceptingEntries) { // Queue is now closed and finished, too
 				const queueIsClosedEmbed = new Discord.MessageEmbed({
 					color: 16711907,
@@ -469,7 +470,7 @@ class queueUserEntry {
 			color: 16312092,
 			description: `The user in front of you in the queue has just started their turn.\nYour turn will commence in at most ${queueToSellMinutes} minutes. \nPlease prepare yourself to enter the Dodo-Code™, and don't forget your turnips!`
 		});
-		this.userObject.send(userUpNextEmbed);
+		this.user.send(userUpNextEmbed);
 	}
 
 	initiateTurn() {
@@ -488,7 +489,7 @@ class queueUserEntry {
 				{name: "Remaining visits", inline: true, value: this.maxVisits - (this.grantedVisits + 1)}
 			]
 		});
-		this.userObject.send(yourTurnEmbed).then(turnMessage => {
+		this.user.send(yourTurnEmbed).then(turnMessage => {
 			this.grantedVisits++;
 			if (this.queue.nextUserEntry) this.queue.nextUserEntry.sendUpNextMessage(); // attempt to send message to next user in queue
 			const reactionCollectorFilter = isLastVisit ? (r,u) => !u.bot && r.emoji.name == '👍' : (r,u) => !u.bot && ['👍','🔁'].includes(r.emoji.name);
@@ -497,7 +498,6 @@ class queueUserEntry {
 			const doneCollector = turnMessage.createReactionCollector(reactionCollectorFilter, {time: queueToSellMinutes*60*1000, max: 1});
 			doneCollector.on('end', (collected, reason) => {
 				if (reason != 'time' && !isLastVisit && collected.size != 0 && collected.first().emoji.name == '🔁') {
-					this.queue.addUserToQueue(this.userObject);
 					turnMessage.channel.send({embed:{
 						color: 16711907,
 						description: `🔁 You have been added back into the queue.\nYour turn is over for now, but will continue soon! **Please prepare for your next visit immediately.**`
@@ -524,9 +524,9 @@ class queueUserEntry {
 
 	estimatedWaitTime() { // TODO fix this to be more accurate cause this shit ain't accurate mate
 		let worstEstimate;
-		worstEstimate += this.type == 'single' ? (remainingUsersInSubqueue('single') - 1) * queueToSellMinutes : remainingUsersInSubqueue('single') * queueToSellMinutes;
-		worstEstimate += this.type == 'some' ? (remainingUsersInSubqueue('some') - 1) * queueToSellMinutes * 3 : remainingUsersInSubqueue('some') * queueToSellMinutes * 3;
-		worstEstimate += this.type == 'multi' ? (remainingUsersInSubqueue('multi') - 1) * queueToSellMinutes * 7 : remainingUsersInSubqueue('multi') * queueToSellMinutes * 7;
+		worstEstimate += this.type == 'single' ? (this.queue.remainingUsersInSubqueue('single') - 1) * queueToSellMinutes : this.queue.remainingUsersInSubqueue('single') * queueToSellMinutes;
+		worstEstimate += this.type == 'some' ? (this.queue.remainingUsersInSubqueue('some') - 1) * queueToSellMinutes * 3 : this.queue.remainingUsersInSubqueue('some') * queueToSellMinutes * 3;
+		worstEstimate += this.type == 'multi' ? (this.queue.remainingUsersInSubqueue('multi') - 1) * queueToSellMinutes * 7 : this.queue.remainingUsersInSubqueue('multi') * queueToSellMinutes * 7;
 		return `${Math.floor(worstEstimate * 0.66)} - ${worstEstimate}`;
 	}
 }
