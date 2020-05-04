@@ -371,6 +371,9 @@ class queueEntry {
 				loopedOver = true;
 				continue;
 			}
+			// Check if the user is on his last turn;			
+			if (this._rawQueues[this.processingGroup.type][searchingIndex].grantedVisits >= this._rawQueues[this.processingGroup.type][searchingIndex].maxVisits) continue;
+			
 			if (!this._rawQueues[this.processingGroup.type][searchingIndex].fulfilled) return searchingIndex;
 		}
 		throw new Error("Something went wrong while attempting to find the next user in the current processing group.");
@@ -380,11 +383,12 @@ class queueEntry {
 		if (this.processingGroup.type && this.nextUserIndexFromProcessingGroup > -1) return this._rawQueues[this.processingGroup.type][this.nextUserIndexFromProcessingGroup];
 		
 		let single_active = this.currentUserProcessed && this.currentUserProcessed.type == 'single';
-		if (this.remainingUsersInSubqueue('single') >= single_active ? 2 : 1) return this._rawQueues.single[this.queuePositions.single + single_active ? 1 : 0];
+		if (this.remainingUsersInSubqueue('single') >= (single_active ? 2 : 1)) return this._rawQueues.single[this.queuePositions.single + (single_active ? 1 : 0)];
 
 		if (this.processingGroup.type == 'some' && this.processingGroup.firstIndex + queueMultiGroupSize >= this._rawQueues.some.length) return this._rawQueues.some[this.processingGroup.firstIndex + queueMultiGroupSize];
+		
 		if (this.remainingUsersInSubqueue('some') >= 1) return this._rawQueues.some[this.queuePositions.some]; //usually only if single users were called before
-
+		
 		if (this.processingGroup.type == 'multi' && this.processingGroup.firstIndex + queueMultiGroupSize >= this._rawQueues.multi.length) return this._rawQueues.multi[this.processingGroup.firstIndex + queueMultiGroupSize];
 		if (this.remainingUsersInSubqueue('multi') >= 1) return this._rawQueues.multi[this.queuePositions.multi];
 
@@ -472,7 +476,7 @@ class queueUserEntry {
 	}
 
 	get subQueuePosition() {
-		this.queue._rawQueues[this.type].findIndex(q => q.user.id == this.user.id);
+		return this.queue._rawQueues[this.type].findIndex(q => q.user.id == this.user.id);
 	}
 
 	sendUpNextMessage() {
@@ -538,7 +542,7 @@ class queueUserEntry {
 	estimatedWaitTime() { // TODO fix this to be more accurate cause this shit ain't accurate mate
 		const worstRepeatAssumptions = {some: 3, multi: 7};
 		const avgEstimateMultiplier = 0.66;
-		let worstEstimate;
+		let worstEstimate = 0;
 		let userAmtInProcessingGroup = 0;
 		if (this.queue.processingGroup.type) { // There's currently a processing group active - calculate these times first.
 			// TODO: Maybe adjust this to be slightly more accurate depending on the users' subgroup position
