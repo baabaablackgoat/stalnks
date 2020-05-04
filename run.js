@@ -285,7 +285,7 @@ class priceEntry {
 const queueAcceptingMinutes = parseInt(getEnv('DISCORD_STONKS_QUEUEACCEPTINGMINUTES', '30'));
 const queueToSellMinutes = parseInt(getEnv('DISCORD_STONKS_QUEUETOSELLMINUTES', '7'));
 
-const queueMultiGroupSize = parseInt(getEnv('DISCORD_STONKS_QUEUEMULTIGROUPSIZE', '3')); // TODO actually use this!
+const queueMultiGroupSize = parseInt(getEnv('DISCORD_STONKS_QUEUEMULTIGROUPSIZE', '3'));
 
 class queueEntry {
 	constructor(userId) {
@@ -378,9 +378,16 @@ class queueEntry {
 
 	get nextUserEntry() { // Note: this does NOT advance the queue or create new processing groups, this.update() does that! This is used to message the upcoming user instead
 		if (this.processingGroup.type && this.nextUserIndexFromProcessingGroup > -1) return this._rawQueues[this.processingGroup.type][this.nextUserIndexFromProcessingGroup];
-		if (this.remainingUsersInSubqueue('single') > 0) return this._rawQueues.single[this.queuePositions.single];
-		if (this.remainingUsersInSubqueue('some') > 0) return this._rawQueues.some[this.queuePositions.some];
-		if (this.remainingUsersInSubqueue('multi') > 0) return this._rawQueues.multi[this.queuePositions.multi];
+		
+		let single_active = this.currentUserProcessed && this.currentUserProcessed.type == 'single';
+		if (this.remainingUsersInSubqueue('single') >= single_active ? 2 : 1) return this._rawQueues.single[this.queuePositions.single + single_active ? 1 : 0];
+
+		if (this.processingGroup.type == 'some' && this.processingGroup.firstIndex + queueMultiGroupSize >= this._rawQueues.some.length) return this._rawQueues.some[this.processingGroup.firstIndex + queueMultiGroupSize];
+		if (this.remainingUsersInSubqueue('some') >= 1) return this._rawQueues.some[this.queuePositions.some]; //usually only if single users were called before
+
+		if (this.processingGroup.type == 'multi' && this.processingGroup.firstIndex + queueMultiGroupSize >= this._rawQueues.multi.length) return this._rawQueues.multi[this.processingGroup.firstIndex + queueMultiGroupSize];
+		if (this.remainingUsersInSubqueue('multi') >= 1) return this._rawQueues.multi[this.queuePositions.multi];
+
 		return false;
 	}
 
