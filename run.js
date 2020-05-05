@@ -341,10 +341,11 @@ class queueEntry {
 				confirmationMsg.react('👋');
 				const leaveQueueCollector = confirmationMsg.createReactionCollector((r,u) => !u.bot && r.emoji.name == '👋', {time: queueAcceptingMinutes*60*1000, max: 1});
 				leaveQueueCollector.on('collect', (leaveR, leavingUser) => {
-					if (!queueData.hasOwnProperty(msg.author.id)) return; // just in case the queue was already deleted
-					let foundUserIndex = queueData[msg.author.id]._rawQueues[type].findIndex(e => e.user.id == leavingUser.id);
+					if (!this) return; // just in case the queue was already deleted
+					let foundUserIndex = this._rawQueues[type].findIndex(e => e.user.id == leavingUser.id);
+					console.log(foundUserIndex, this.queuePositions[type]);
 					if (foundUserIndex >= 0 && foundUserIndex > this.queuePositions[type]) {
-						queueData[msg.author.id]._rawQueues[type].splice(foundUserIndex, 1);
+						this._rawQueues[type].splice(foundUserIndex, 1);
 						leavingUser.send({embed: {
 							color: 16711907,
 							description: `You have been removed from the queue.`
@@ -500,7 +501,7 @@ class queueUserEntry {
 			color: 16312092,
 			description: `You have **${queueToSellMinutes} minutes** to connect, sell your turnips, and leave the island.\nOnce your timeslot expires, the next user in the queue will be automatically messaged.\nShould you be done early, please click 👍 to notify that you're done.${isLastVisit ? "" : "\nIf you wish to reconnect later to sell more, click 🔁 to be added to the queue again. *Please note that this also ends your turn!*"}`,
 			fields: [
-				{name: "Dodo Code™", inline: false, value: this.queue.dodoCode},
+				{name: "Dodo Code™", inline: false, value: `**${this.queue.dodoCode}**`},
 				{name: "Additional information:", inline: false, value: this.queue.addlInformation},
 				{name: "Visit #", inline: true, value: this.grantedVisits + 1},
 				{name: "Remaining visits", inline: true, value: this.maxVisits - (this.grantedVisits + 1)}
@@ -508,7 +509,12 @@ class queueUserEntry {
 		});
 		this.user.send(yourTurnEmbed).then(turnMessage => {
 			this.grantedVisits++;
-			if (this.queue.nextUserEntry) this.queue.nextUserEntry.sendUpNextMessage(); // attempt to send message to next user in queue
+			if (this.queue.nextUserEntry) { // attempt to send message to next user in queue
+				if (this.queue.nextUserEntry.user.id === this.user.id) {
+					yourTurnEmbed.fields.push({name: "By the way...", value: "**Your next turn will be immediately after the current one!**"});
+					turnMessage.edit(yourTurnEmbed);
+				} else this.queue.nextUserEntry.sendUpNextMessage();
+			}
 			const reactionCollectorFilter = isLastVisit ? (r,u) => !u.bot && r.emoji.name == '👍' : (r,u) => !u.bot && ['👍','🔁'].includes(r.emoji.name);
 			turnMessage.react('👍');
 			if (!isLastVisit) turnMessage.react('🔁');
@@ -532,14 +538,14 @@ class queueUserEntry {
 				this.queue.update();
 			});
 
-		})/*.catch(err => {
+		}).catch(err => {
 			console.log("Failed to message a user the dodo code, skipping user: "+err);
 			this.currentUserProcessed = null;
 			this.queue.update();
-		});*/
+		});
 	}
 
-	estimatedWaitTime() { // TODO fix this to be more accurate cause this shit ain't accurate mate
+	estimatedWaitTime() {
 		const worstRepeatAssumptions = {some: 3, multi: 7};
 		const avgEstimateMultiplier = 0.66;
 		let worstEstimate = 0;
@@ -1184,7 +1190,7 @@ client.on('message', msg => {
 				msg.channel.send(informationEmbed).then(reactionJoinMsg => {
 						informationMessage = reactionJoinMsg;
 						for (let i = 0; i < joinEmoteList.length; i++) {reactionJoinMsg.react(joinEmoteList[i]);}
-						const joinReactionCollector = reactionJoinMsg.createReactionCollector((r,u) => !u.bot /*&& u.id != msg.author.id*/ && joinEmoteList.includes(r.emoji.name), {time: queueAcceptingMinutes*60*1000});
+						const joinReactionCollector = reactionJoinMsg.createReactionCollector((r,u) => !u.bot /*TEST && u.id != msg.author.id */ && joinEmoteList.includes(r.emoji.name), {time: queueAcceptingMinutes*60*1000});
 						joinReactionCollector.on('collect', (reaction, reactingUser) => {
 							const userQueueTypeList = ['single', 'some', 'multi'];
 							queueData[msg.author.id].addUserToQueue(reactingUser, userQueueTypeList[joinEmoteList.indexOf(reaction.emoji.name)]);
