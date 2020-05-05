@@ -1,0 +1,15 @@
+{
+    "compilerOptions": {
+        "moduleResolution": "node",
+        "target": "es2018",
+        "module": "commonjs",
+        "outDir": "./dist/",
+        "newLine": "LF",
+        "removeComments": false,
+        "strict": false
+    },
+    "include": ["./run.ts"],
+    "exclude": [
+        "node_modules"
+    ]
+}
