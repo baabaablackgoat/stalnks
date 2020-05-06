@@ -1,6 +1,8 @@
-const fs = require('fs');
-const moment = require('moment-timezone');
-const Discord = require('discord.js');
+import * as Discord from "discord.js";
+import * as moment from "moment-timezone";
+import * as fs from "fs";
+import { TextChannel } from "discord.js";
+
 const client = new Discord.Client();
 
 // ensure data exists
@@ -27,7 +29,7 @@ fs.readFile(userDataPath, 'utf8', (err, data) => {
 		}
 	} else {
 		try {
-			rawData = JSON.parse(data);
+			const rawData = JSON.parse(data);
 			for (let key in rawData) {
 				try {
 					userData[key] = userEntry.fromRaw(key, rawData[key]);
@@ -54,7 +56,7 @@ fs.readFile(userDataPath, 'utf8', (err, data) => {
 			}
 		} else {
 			try {
-				rawData = JSON.parse(data);
+				const rawData = JSON.parse(data);
 				for (let key in rawData) {
 					try {
 						priceData[key] = priceEntry.fromRaw(key, rawData[key]);
@@ -146,6 +148,14 @@ function hasElevatedPermissions(member) {
 
 
 class userEntry { // there doesn't seem to be anything non-experimental for private fields
+	private id;
+	private timezone;
+	private friendcode;
+	private weekUpdated;
+	private lastWeekPattern;
+	private _weekPrices;
+	private optInPatternDM;
+
 	constructor(id, timezone, friendcode, weekUpdated, lastWeekPattern, _weekPrices, optInPatternDM) {
 		this.id = id;
 		this.timezone = timezone;
@@ -218,6 +228,11 @@ class userEntry { // there doesn't seem to be anything non-experimental for priv
 
 
 class priceEntry {
+	private id;
+	private user;
+	private expiresAt;
+	private _price;
+
 	constructor(userId, price, expiresAt = null) {
 		// sanity checks. these *can* be made redundant, but you can also just handle errors
 		if (!(userId in userData)) throw new ReferenceError("userId "+userId+" not registered in userData.");
@@ -251,7 +266,7 @@ class priceEntry {
 		if (m.day() == 0) {
 			return 0;
 		} else {
-			return m.day() * 2 - (m.hour() < 12);
+			return m.day() * 2 - Number(m.hour() < 12);
 		}
 	}
 
@@ -288,6 +303,18 @@ const queueToSellMinutes = parseInt(getEnv('DISCORD_STONKS_QUEUETOSELLMINUTES', 
 const queueMultiGroupSize = parseInt(getEnv('DISCORD_STONKS_QUEUEMULTIGROUPSIZE', '3'));
 
 class queueEntry {
+	private id;
+	private dodoCode;
+	private addlInformation;
+	private currentUserProcessed;
+	private acceptingEntries;
+	private _rawQueues;
+	private queuePositions;
+	private processingGroup;
+	private joinReactionCollector;
+	private previousUserProcessed;
+	private minimumAcceptanceExpiresAt;
+
 	constructor(userId) {
 		this.id = userId; // to allow for self-deletion
 		this.dodoCode = null;
@@ -461,6 +488,14 @@ class queueEntry {
 }
 
 class queueUserEntry {
+	private user;
+	private queue;
+	private maxVisits;
+	private type;
+	private fulfilled;
+	private grantedVisits;
+	private currentUserProcessed;
+
 	constructor(userObject, queue, type) {
 		this.user = userObject;
 		this.queue = queue;
@@ -517,7 +552,7 @@ class queueUserEntry {
 			this.grantedVisits++;
 			if (this.queue.nextUserEntry) { // attempt to send message to next user in queue
 				if (this.queue.nextUserEntry.user.id === this.user.id) {
-					yourTurnEmbed.fields.push({name: "By the way...", value: "**Your next turn will be immediately after the current one!**"});
+					yourTurnEmbed.fields.push({name: "By the way...", value: "**Your next turn will be immediately after the current one!**", inline: false});
 					turnMessage.edit(yourTurnEmbed);
 				} else this.queue.nextUserEntry.sendUpNextMessage();
 			}
@@ -586,7 +621,7 @@ let updateMessage;
 
 function bestStonksEmbed() {
 	updateBestStonks();
-	embedFields = [];
+	const embedFields = [];
 	for (let i = 0; i < best_stonks.length; i++) {
 		if (best_stonks[i] != null) {
 			embedFields.push({
@@ -601,21 +636,21 @@ function bestStonksEmbed() {
 	output.description = "Keep in mind that Nook's Cranny is *usually* open between 8am - 10pm local time.";
 	output.fields = embedFields.length > 0 ? embedFields : [{name: "No prices registered so far.", value: "Register your prices with *value"}];
 	output.footer = {text: 'Stalnks checked (your local time):'};
-	output.timestamp = moment().utc().format();
+	output.timestamp = moment().utc().milliseconds();
 	return output;
 }
 
 function userProfileEmbed(member) {
 	if (!userData.hasOwnProperty(member.user.id)) throw new ReferenceError("Profile embed was requested, but user was never registered");
 	let output = new Discord.MessageEmbed();
-	output.author = {name: member.displayName, icon_url: member.user.avatarURL()};
+	output.author = {name: member.displayName, iconURL: member.user.avatarURL()};
 	output.color = 16711907;
 	output.fields = [
 		{name: "Friendcode", value: userData[member.user.id].friendcode ? userData[member.user.id].friendcode : "No friendcode registered.", inline: false},
 		{name: "Current stonks", value: priceData.hasOwnProperty(member.user.id) && priceData[member.user.id].price ? "**" + priceData[member.user.id].price +" Bells** for another "+ priceData[member.user.id].timeLeftString() : "No active stonks", inline: true},
 		{name: "Timezone", value: userData[member.user.id].timezone ? userData[member.user.id].timezone : "No timezone registered.", inline: true},
 	];
-	output.timestamp = moment().utc().format();
+	output.timestamp = moment().utc().milliseconds();
 	return output;
 }
 
@@ -848,7 +883,7 @@ client.on('message', msg => {
 
 	// set/update timezone
 	if (msg.content.startsWith(msgPrefix + timezoneInvoker)) {
-		timezone = msg.content.substring(msgPrefix.length + timezoneInvoker.length).trim().replace(" ", "_");
+		let timezone = msg.content.substring(msgPrefix.length + timezoneInvoker.length).trim().replace(" ", "_");
 		if (timezone == 'list') {
 			const timezoneListEmbed = new Discord.MessageEmbed({
 				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
@@ -900,7 +935,7 @@ client.on('message', msg => {
 
 	// friendcode handling
 	if (msg.content.startsWith(msgPrefix + fcInvoker)) {
-		fc = msg.content.substring(msgPrefix.length + fcInvoker.length);
+		const fc = msg.content.substring(msgPrefix.length + fcInvoker.length);
 		const fcRegex = /^SW-\d{4}-\d{4}-\d{4}$/;
 		if (['remove', 'delete', 'no'].includes(fc)) {
 			if (!userData.hasOwnProperty(msg.author.id) || !userData[msg.author.id].friendcode) {
@@ -1244,7 +1279,7 @@ client.on('message', msg => {
 			return;
 		}
 		let weekPrices = userData[msg.author.id].weekPrices;
-		let weeks = [
+		let weeks: [string, number][] = [
 			["Mon", 1],
 			["Tue", 3],
 			["Wed", 5],
@@ -1257,7 +1292,7 @@ client.on('message', msg => {
 			title: "Your week's (registered) prices",
 			color: 16711907,
 			fields: [
-				{name: "Purchased for", value: `${weekPrices[0] ? weekPrices[0] : "???"} Bells`},
+				{name: "Purchased for", value: `${weekPrices[0] ? weekPrices[0] : "???"} Bells`, inline: false},
 			].concat(weeks.map(([day,idx]) => {
 				return {
 					name: day,
@@ -1422,7 +1457,7 @@ client.on('message', msg => {
 						deleteConfirmMsg.edit(areYouSureDeleteUserEmbed);
 					}
 				});
-			}).catch(err => console.log(`User ${msg.user.tag} requested data deletion, but it failed due to not being able to send a message. Please follow up with this user. Details: ${err}`));
+			}).catch(err => console.log(`User ${msg.author.tag} requested data deletion, but it failed due to not being able to send a message. Please follow up with this user. Details: ${err}`));
 		return;
 	}
 
@@ -1432,7 +1467,7 @@ client.on('message', msg => {
 	let tokens = msg.content.split(" ");
 	let interval;
 	if (tokens.length > 1) interval = stringOrArrayToInterval(tokens.slice(1));
-	stonks_value = Number(tokens[0].substring(1));
+	const stonks_value = Number(tokens[0].substring(1));
 
 	if (isNaN(stonks_value)) return;
 	if (!userData.hasOwnProperty(msg.author.id) || !userData[msg.author.id].timezone) {
@@ -1476,7 +1511,7 @@ client.on('message', msg => {
 		}
 
 		let now_tz = moment().tz(userData[msg.author.id].timezone);
-		let maximumAcceptableInterval = now_tz.day() == 0 ? 0 : now_tz.day() * 2 - (now_tz.hour() < 12);
+		let maximumAcceptableInterval = now_tz.day() == 0 ? 0 : now_tz.day() * 2 - Number(now_tz.hour() < 12);
 		if (interval > maximumAcceptableInterval) {
 			const intervalInFutureEmbed = new Discord.MessageEmbed({
 				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
@@ -1522,11 +1557,16 @@ client.on('ready', () => {
 	console.log(`stalnks. logged in as ${client.user.tag}`);
 
 	// get stuff about the channel and the possibly editable message
-	updateChannelID = getEnv('DISCORD_STONKS_UPDATECHANNELID', false);
+	const updateChannelID = getEnv('DISCORD_STONKS_UPDATECHANNELID', false);
 
 	if (updateChannelID) {
 		client.channels.fetch(updateChannelID)
 			.then(channel => {
+				if(!(channel instanceof TextChannel)){
+					console.warn(`The channel '${channel}' is not a text channel, skipping.`);
+					return;
+				}
+
 				updateChannel = channel;
 				channel.messages.fetch({limit:10})
 					.then(messages => {

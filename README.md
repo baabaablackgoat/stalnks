@@ -19,5 +19,5 @@ A small discord bot all about turnip exchange in Animal Crossing - New Horizons
     ```
 3. Run project
     ```bash
-    node run.js
+    npm run serve
     ```

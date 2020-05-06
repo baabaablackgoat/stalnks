@@ -2,9 +2,14 @@
   "name": "nhstalkbot",
   "version": "1.0.0",
   "description": "small and shitty discord bot for new horizons",
-  "main": "run.js",
+  "main": "./dist/run.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "npm-run-all build serve",
+    "serve": "node -r source-map-support/register ./dist/run.js",
+    "build": "tsc --build ./tsconfig.json",
+    "lint": "eslint ./run.ts --ext .ts",
+    "fix": "eslint ./run.ts --ext .ts --fix"
   },
   "author": "",
   "license": "ISC",
@@ -12,5 +17,16 @@
     "discord.js": "^12.1.1",
     "moment": "^2.24.0",
     "moment-timezone": "^0.5.28"
+  },
+  "devDependencies": {
+    "@types/moment-timezone": "^0.5.13",
+    "@types/node": "^13.13.4",
+    "@types/ws": "^7.2.4",
+    "@typescript-eslint/eslint-plugin": "^2.31.0",
+    "@typescript-eslint/parser": "^2.31.0",
+    "source-map-support": "^0.5.19",
+    "eslint": "^6.8.0",
+    "npm-run-all": "^4.1.5",
+    "typescript": "^3.8.3"
   }
 }
