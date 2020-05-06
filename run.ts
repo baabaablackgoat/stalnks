@@ -83,12 +83,12 @@ function getEnv(varName: string, otherwise: any = undefined): string {
 }
 
 // Save data in case of restarts or emergencies so that existing data won't be lost
-function saveData() {
+function saveData(): void {
 	fs.writeFile(userDataPath, JSON.stringify(userData), err => {
-		if (err) console.log("Error while saving user data to disk:\n"+err);
+		if (err) console.log("Error while saving user data to disk:\n" + err.message);
 	});
 	fs.writeFile(priceDataPath, JSON.stringify(priceData), err => {
-		if (err) console.log("Error while saving price data to disk:\n"+err);
+		if (err) console.log("Error while saving price data to disk:\n" + err.message);
 	});
 }
 let saveInterval = setInterval(saveData, 60000);
