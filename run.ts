@@ -113,10 +113,10 @@ function updateBestStonks(): void {
 	// console.debug(best_stonks);
 }
 
-function priceIsMentionWorthy(new_value) {
-	if (new_value < MINIMUM_PRICE_FOR_PING) return false;
+function priceIsMentionWorthy(newValue): boolean {
+	if (newValue < MINIMUM_PRICE_FOR_PING) return false;
 	if (!bestStonks || !bestStonks[0]) return true;// If no best stonk exists, it's mentionworthy
-	if (new_value <= bestStonks[0].price) return false; // Best stonk exists and is equal or better
+	if (newValue <= bestStonks[0].price) return false; // Best stonk exists and is equal or better
 	return true; // Best known stonk is worse - mentionworthy!
 }
 
