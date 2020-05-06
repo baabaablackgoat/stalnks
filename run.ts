@@ -636,7 +636,7 @@ function bestStonksEmbed() {
 	output.description = "Keep in mind that Nook's Cranny is *usually* open between 8am - 10pm local time.";
 	output.fields = embedFields.length > 0 ? embedFields : [{name: "No prices registered so far.", value: "Register your prices with *value"}];
 	output.footer = {text: 'Stalnks checked (your local time):'};
-	output.timestamp = moment().utc().milliseconds();
+	output.timestamp = moment().utc().valueOf();
 	return output;
 }
 
@@ -650,7 +650,7 @@ function userProfileEmbed(member) {
 		{name: "Current stonks", value: priceData.hasOwnProperty(member.user.id) && priceData[member.user.id].price ? "**" + priceData[member.user.id].price +" Bells** for another "+ priceData[member.user.id].timeLeftString() : "No active stonks", inline: true},
 		{name: "Timezone", value: userData[member.user.id].timezone ? userData[member.user.id].timezone : "No timezone registered.", inline: true},
 	];
-	output.timestamp = moment().utc().milliseconds();
+	output.timestamp = moment().utc().valueOf();
 	return output;
 }
 
