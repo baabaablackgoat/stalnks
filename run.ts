@@ -1,7 +1,7 @@
 import * as Discord from "discord.js";
+import { TextChannel } from "discord.js";
 import * as moment from "moment-timezone";
 import * as fs from "fs";
-import { TextChannel } from "discord.js";
 
 const client = new Discord.Client();
 
@@ -72,13 +72,13 @@ fs.readFile(userDataPath, 'utf8', (err, data) => {
 	});
 });
 
-function getEnv(var_name, otherwise=undefined) {
-	if (process.env[var_name]) {
-		return process.env[var_name];
+function getEnv(varName: string, otherwise: any = undefined): string {
+	if (process.env[varName]) {
+		return process.env[varName];
 	} else if (otherwise !== undefined) {
 		return otherwise;
 	} else {
-		throw `${var_name} not set in environment`;
+		throw new Error(`${varName} not set in environment`);
 	}
 }
 
