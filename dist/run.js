@@ -326,6 +326,7 @@ class QueueEntry {
         this.previousUserProcessed = null;
         this.joinReactionCollector = null;
         this.minimumAcceptanceExpiresAt = moment().add(queueAcceptingMinutes, 'minutes');
+        this.entryCloseInterval = setInterval(this.closeOnExpiryAndEmpty.bind(this), 60 * 1000);
     }
     /*
     get userQueue() { // TODO/DEPRECATED might be deprecated / not needed
@@ -416,16 +417,26 @@ class QueueEntry {
             return this._rawQueues.multi[this.queuePositions.multi];
         return false;
     }
+    closeOnExpiryAndEmpty() {
+        if (!this.acceptingEntries)
+            return; // In case it was already closed
+        if (this.remainingUsersInSubqueue('single') != 0 || this.remainingUsersInSubqueue('some') != 0 || this.remainingUsersInSubqueue('multi') != 0)
+            return;
+        console.log('no users');
+        if (this.minimumAcceptanceExpiresAt.diff(moment()) > 0)
+            return;
+        console.log('timeout closing');
+        // actual closure
+        if (this.joinReactionCollector && !this.joinReactionCollector.ended)
+            this.joinReactionCollector.stop("No more entries and minimum time has expired");
+        if (this.entryCloseInterval)
+            clearInterval(this.entryCloseInterval);
+    }
     update() {
         if (this.currentUserProcessed)
             return;
         if (!this.remainingUsersInSubqueue('single') && !this.remainingUsersInSubqueue('some') && !this.remainingUsersInSubqueue('multi')) {
-            // Once some time has passed and the queue is entry, prevent further entries from being added
-            if (this.acceptingEntries && this.minimumAcceptanceExpiresAt.diff(moment()) <= 0) {
-                if (this.joinReactionCollector && !this.joinReactionCollector.ended)
-                    this.joinReactionCollector.stop("No more entries and minimum time has expired");
-            }
-            if (!this.acceptingEntries && !this.remainingUsersInSubqueue('single') && !this.remainingUsersInSubqueue('some') && !this.remainingUsersInSubqueue('multi')) { // Queue is now closed and finished, too
+            if (!this.acceptingEntries) { // Queue is now closed and finished, too
                 const queueIsClosedEmbed = new Discord.MessageEmbed({
                     color: 16711907,
                     description: `Thank you for sharing your turnip prices with everyone! It looks like the queue you started has come to an end. If you like, you can:`,
@@ -984,7 +995,7 @@ client.on('message', msg => {
                     description: `⚠ You don't have permission to remove other users' entries.`
                 });
                 // THESE MESSAGES ARE PURPOSELY NOT DISMISSIBLE TO BLATANTLY SHOW TAMPER ATTEMPTS.
-                msg.channel.send(noPermissionRemoveEmbed);
+                msg.channel.send(noPermissionRemoveEmbed).catch(err => console.error(err));
                 return;
             }
             if (msg.mentions.members.size > 1) {
@@ -1156,6 +1167,7 @@ client.on('message', msg => {
             // Create a message collector in the DM Channel of the creating user to collect the dodo code and potential additional information.
             const dodoCodeCollector = dmMsg.channel.createMessageCollector(m => !m.author.bot && validDodoCodeRegex.test(m.content.substring(0, 6).trim().toUpperCase()), { time: 3 * 60 * 1000, max: 1 });
             let informationMessage;
+            // eslint-disable-next-line prefer-const
             let informationEmbed;
             dodoCodeCollector.on('end', (collected, reason) => {
                 if (reason == 'time' || collected.size != 1) {

@@ -328,6 +328,7 @@ class QueueEntry {
 	private readonly joinReactionCollector;
 	private readonly previousUserProcessed;
 	private readonly minimumAcceptanceExpiresAt;
+	private entryCloseInterval;
 
 	constructor(userId) {
 		this.id = userId; // to allow for self-deletion
@@ -349,6 +350,7 @@ class QueueEntry {
 		this.previousUserProcessed = null;
 		this.joinReactionCollector = null;
 		this.minimumAcceptanceExpiresAt = moment().add(queueAcceptingMinutes, 'minutes');
+		this.entryCloseInterval = setInterval(this.closeOnExpiryAndEmpty.bind(this), 60*1000)
 	}
 
 	/*
@@ -438,15 +440,24 @@ class QueueEntry {
 		return false;
 	}
 
+	closeOnExpiryAndEmpty(): void { // Note - use .bind() in the interval to preserve context
+		if (!this.acceptingEntries) return; // In case it was already closed
+		if (this.remainingUsersInSubqueue('single') != 0 || this.remainingUsersInSubqueue('some') != 0 || this.remainingUsersInSubqueue('multi') != 0) return;
+		console.log('no users');
+		if (this.minimumAcceptanceExpiresAt.diff(moment()) > 0) return;
+		console.log('timeout closing');
+
+		// actual closure
+		if (this.joinReactionCollector && !this.joinReactionCollector.ended) this.joinReactionCollector.stop("No more entries and minimum time has expired");
+		if (this.entryCloseInterval) clearInterval(this.entryCloseInterval);
+	}
+
 	update(): void {
 		if (this.currentUserProcessed) return;
 		if (!this.remainingUsersInSubqueue('single') && !this.remainingUsersInSubqueue('some') && !this.remainingUsersInSubqueue('multi')) {
-			// Once some time has passed and the queue is entry, prevent further entries from being added
-			if (this.acceptingEntries && this.minimumAcceptanceExpiresAt.diff(moment()) <= 0) {
-				if (this.joinReactionCollector && !this.joinReactionCollector.ended) this.joinReactionCollector.stop("No more entries and minimum time has expired");
-			}
 
-			if (!this.acceptingEntries && !this.remainingUsersInSubqueue('single') && !this.remainingUsersInSubqueue('some') && !this.remainingUsersInSubqueue('multi')) { // Queue is now closed and finished, too
+
+			if (!this.acceptingEntries) { // Queue is now closed and finished, too
 				const queueIsClosedEmbed = new Discord.MessageEmbed({
 					color: 16711907,
 					description: `Thank you for sharing your turnip prices with everyone! It looks like the queue you started has come to an end. If you like, you can:`,
