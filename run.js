@@ -306,6 +306,8 @@ class queueEntry {
 			currentIndex: -1,
 		};
 		this.previousUserProcessed = null;
+		this.joinReactionCollector = null;
+		this.minimumAcceptanceExpiresAt = moment().add(queueAcceptingMinutes, 'minutes');
 	}
 
 	/*
@@ -343,7 +345,6 @@ class queueEntry {
 				leaveQueueCollector.on('collect', (leaveR, leavingUser) => {
 					if (!this) return; // just in case the queue was already deleted
 					let foundUserIndex = this._rawQueues[type].findIndex(e => e.user.id == leavingUser.id);
-					console.log(foundUserIndex, this.queuePositions[type]);
 					if (foundUserIndex >= 0 && foundUserIndex > this.queuePositions[type]) {
 						this._rawQueues[type].splice(foundUserIndex, 1);
 						leavingUser.send({embed: {
@@ -399,7 +400,12 @@ class queueEntry {
 	update(){
 		if (this.currentUserProcessed) return;
 		if (!this.remainingUsersInSubqueue('single') && !this.remainingUsersInSubqueue('some') && !this.remainingUsersInSubqueue('multi')) {
-			if (!this.acceptingEntries) { // Queue is now closed and finished, too
+			// Once some time has passed and the queue is entry, prevent further entries from being added
+			if (this.acceptingEntries && this.minimumAcceptanceExpiresAt.diff(moment()) <= 0) {
+				if (this.joinReactionCollector && !this.joinReactionCollector.ended) this.joinReactionCollector.stop("No more entries and minimum time has expired");
+			}
+
+			if (!this.acceptingEntries && !this.remainingUsersInSubqueue('single') && !this.remainingUsersInSubqueue('some') && !this.remainingUsersInSubqueue('multi')) { // Queue is now closed and finished, too
 				const queueIsClosedEmbed = new Discord.MessageEmbed({
 					color: 16711907,
 					description: `Thank you for sharing your turnip prices with everyone! It looks like the queue you started has come to an end. If you like, you can:`,
@@ -694,6 +700,7 @@ const lastPatternInvoker = 'pattern';
 const optOutPatternDMInvoker = 'optout';
 const optInPatternDMInvoker = 'optin';
 const removeAllPersonalDataInvoker = 'forgetme';
+const userRequestedStopInvoker = 'stop';
 const zoneListURL = "https://gist.github.com/baabaablackgoat/92f7408897f0f7e673d20a1301ca5bea";
 const lowercasedTimezones = moment.tz.names().map(tz => tz.toLowerCase());
 client.on('message', msg => {
@@ -1154,8 +1161,18 @@ client.on('message', msg => {
 						dmMsg.edit({embed: {
 							author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 							color: 4289797,
-							description: `✅ Your Dodo code and possible additional information have been added. Queueing will now commence.`
+							description: `✅ Your Dodo code and possible additional information have been added. Queueing will now commence.\n**If you wish to stop accepting new entries, reply in this channel with \`${msgPrefix}${userRequestedStopInvoker}\`**. This will not immediately stop the queue, but no further users will be able to join!`
 						}});
+						// Allow the user to close his queue
+						const stopQueueMessageCollector = dmMsg.channel.createMessageCollector(m => !m.author.bot && m.content === `${msgPrefix}${userRequestedStopInvoker}`, {time: 12*60*60*1000, max: 1});
+						stopQueueMessageCollector.on('collect', stopMessage => {
+							if (queueData.hasOwnProperty(msg.author.id)) queueData[msg.author.id].joinReactionCollector.stop("User has requested queue closure");
+							dmMsg.channel.send({embed: {
+								author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
+								color: 4289797,
+								description: `🛑 Your queue now no longer accepts any new entries, but is still running.`
+							}});
+						});
 						// Update the new queue entry with the collected message
 						const collectedCreatorMessage = collected.first() ;
 						queueData[msg.author.id].dodoCode = collectedCreatorMessage.content.substring(0,5).toUpperCase();
@@ -1163,7 +1180,7 @@ client.on('message', msg => {
 
 						// Update the queue info message to contain useful data.
 						if (informationMessage) {
-							informationEmbed.description = `ℹ If you wish to join this queue, react to this message with the according emote. **This queue will close in ${queueAcceptingMinutes} minutes from creation.**`;
+							informationEmbed.description = `ℹ If you wish to join this queue, react to this message with the according emote.`;
 							informationEmbed.fields.push([
 								{name: "Stalk price", value: priceData.hasOwnProperty(msg.author.id) ? priceData[msg.author.id].price + " Bells" : "Unknown", inline: false},
 								{name: "Additional information", value: queueData[msg.author.id].addlInformation, inline: false}
@@ -1180,7 +1197,7 @@ client.on('message', msg => {
 				informationEmbed = new Discord.MessageEmbed();
 				informationEmbed.author = {name: msg.member.displayName, icon_url: msg.author.avatarURL()};
 				informationEmbed.color = 16711907;
-				informationEmbed.description = `ℹ A queue is currently being set up for **${priceData.hasOwnProperty(msg.author.id) ? priceData[msg.author.id].price : "an unknown amount of"} Bells.**\n If you wish to join this queue, react to this message according to the amount of visits you are planning to do.\n\n**This queue will close in ${queueAcceptingMinutes} minutes.**`;
+				informationEmbed.description = `ℹ A queue is currently being set up for **${priceData.hasOwnProperty(msg.author.id) ? priceData[msg.author.id].price : "an unknown amount of"} Bells.**\n If you wish to join this queue, react to this message according to the amount of visits you are planning to do.`;
 				informationEmbed.fields = [
 					{name:joinEmoteList[0], value: "1 visit only", inline: true},
 					{name:joinEmoteList[1], value: "2-3 visits", inline: true},
@@ -1190,12 +1207,13 @@ client.on('message', msg => {
 				msg.channel.send(informationEmbed).then(reactionJoinMsg => {
 						informationMessage = reactionJoinMsg;
 						for (let i = 0; i < joinEmoteList.length; i++) {reactionJoinMsg.react(joinEmoteList[i]);}
-						const joinReactionCollector = reactionJoinMsg.createReactionCollector((r,u) => !u.bot /*TEST && u.id != msg.author.id */ && joinEmoteList.includes(r.emoji.name), {time: queueAcceptingMinutes*60*1000});
-						joinReactionCollector.on('collect', (reaction, reactingUser) => {
+						queueData[msg.author.id].joinReactionCollector = reactionJoinMsg.createReactionCollector((r,u) => !u.bot && u.id != msg.author.id && joinEmoteList.includes(r.emoji.name), {time: 12*60*60*1000});
+						queueData[msg.author.id].joinReactionCollector.on('collect', (reaction, reactingUser) => {
 							const userQueueTypeList = ['single', 'some', 'multi'];
 							queueData[msg.author.id].addUserToQueue(reactingUser, userQueueTypeList[joinEmoteList.indexOf(reaction.emoji.name)]);
 						});
-						joinReactionCollector.on('end', (collected, reason) => {
+						queueData[msg.author.id].joinReactionCollector.on('end', (collected, reason) => {
+							console.log(`Closing queue of ${msg.author.id} - ${reason}`);
 							if (queueData.hasOwnProperty(msg.author.id)) queueData[msg.author.id].acceptingEntries = false;
 							reactionJoinMsg.edit({embed: {
 								author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
@@ -1238,7 +1256,7 @@ client.on('message', msg => {
 			author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 			title: "Your week's (registered) prices",
 			color: 16711907,
-			fields: [ // holy shit this is ugly please make it stop and beautiful
+			fields: [
 				{name: "Purchased for", value: `${weekPrices[0] ? weekPrices[0] : "???"} Bells`},
 			].concat(weeks.map(([day,idx]) => {
 				return {
