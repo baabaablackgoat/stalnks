@@ -28,7 +28,7 @@ const userDataPath = './data/userData.json';
 let userData = {}; // this shall store the timezones of our users
 const priceDataPath = './data/priceData.json';
 let priceData = {}; // this will be some form of an ordered list
-let queueData = {}; // this object handles queues, and doesn't need to be saved cause queues will break on restarts anyways.
+const queueData = {}; // this object handles queues, and doesn't need to be saved cause queues will break on restarts anyways.
 fs.readFile(userDataPath, 'utf8', (err, data) => {
     if (err) {
         if (err.code == 'ENOENT') { // no data found - create new file!
@@ -37,14 +37,14 @@ fs.readFile(userDataPath, 'utf8', (err, data) => {
             console.log("Created new user data file.");
         }
         else {
-            console.log("Something went wrong while reading user data:\n" + err);
+            console.log(`Something went wrong while reading user data:${err}`);
             process.exit(1);
         }
     }
     else {
         try {
             const rawData = JSON.parse(data);
-            for (let key in rawData) {
+            for (const key in rawData) {
                 try {
                     userData[key] = UserEntry.fromRaw(key, rawData[key]);
                 }
@@ -59,32 +59,32 @@ fs.readFile(userDataPath, 'utf8', (err, data) => {
         }
     }
     // once userdata has been loaded, read price data.
-    fs.readFile(priceDataPath, 'utf8', (err, data) => {
-        if (err) {
-            if (err.code == 'ENOENT') {
+    fs.readFile(priceDataPath, 'utf8', (priceErr, priceRawData) => {
+        if (priceErr) {
+            if (priceErr.code == 'ENOENT') {
                 priceData = {};
                 fs.writeFileSync(priceDataPath, "{}");
                 console.log("Created new price data file.");
             }
             else {
-                console.log("Something went wrong while reading price data:\n" + err);
+                console.log("Something went wrong while reading price data:\n" + priceErr);
                 process.exit(1);
             }
         }
         else {
             try {
-                const rawData = JSON.parse(data);
-                for (let key in rawData) {
+                const rawData = JSON.parse(priceRawData);
+                for (const key in rawData) {
                     try {
-                        priceData[key] = priceEntry.fromRaw(key, rawData[key]);
+                        priceData[key] = PriceEntry.fromRaw(key, rawData[key]);
                     }
-                    catch (entryerr) {
-                        console.log("Non-fatal error raised while parsing JSON to priceEntry object: " + entryerr);
+                    catch (entryErr) {
+                        console.log("Non-fatal error raised while parsing JSON to PriceEntry object: " + entryErr);
                     }
                 }
             }
-            catch (jsonerr) {
-                console.log("Something went wrong while parsing price data from JSON:\n" + jsonerr);
+            catch (jsonErr) {
+                console.log("Something went wrong while parsing price data from JSON:\n" + jsonErr);
                 process.exit(1);
             }
         }
@@ -112,7 +112,7 @@ function saveData() {
             console.log("Error while saving price data to disk:\n" + err.message);
     });
 }
-let saveInterval = setInterval(saveData, 60000);
+const saveInterval = setInterval(saveData, 60000);
 // get the best stonks
 let bestStonks = [null, null, null];
 function updateBestStonks() {
@@ -145,15 +145,16 @@ function priceIsMentionWorthy(newValue) {
 }
 const dismissTimeout = parseInt(getEnv('DISCORD_STONKS_DISMISSMESSAGETIMEOUT', '5'));
 const dismissEmoji = "👌";
-function sendDismissableMessage(channel, data, invokingUserID) {
+function sendDismissibleMessage(channel, data, invokingUserID) {
     channel.send(data)
         .then(msg => {
-        msg.react(dismissEmoji);
+        msg.react(dismissEmoji).catch(err => console.error(err));
         const dismissCollector = msg.createReactionCollector((r, u) => u.id == invokingUserID && r.emoji.name == dismissEmoji, { time: dismissTimeout * 60 * 1000, max: 1 });
         dismissCollector.on('collect', (r, u) => {
-            msg.delete();
+            msg.delete().catch(err => console.error(err));
         });
-    });
+    })
+        .catch(err => console.error(err));
 }
 const elevatedPermissionList = ["BAN_MEMBERS", "MANAGE_MESSAGES"];
 function hasElevatedPermissions(member) {
@@ -187,25 +188,25 @@ class UserEntry {
                 client.users.fetch(this.id)
                     .then(user => {
                     const patternEmoji = {
-                        large_spike: "💸",
-                        small_spike: "📈",
+                        largeSpike: "💸",
+                        smallSpike: "📈",
                         fluctuating: "📊",
                         decreasing: "📉",
                     };
                     const patternNumbers = {
                         fluctuating: 0,
-                        large_spike: 1,
+                        largeSpike: 1,
                         decreasing: 2,
-                        small_spike: 3
+                        smallSpike: 3
                     };
                     const askForLastPatternEmbed = new Discord.MessageEmbed({
-                        description: `It seems like you've entered turnip prices last week that have now run their course!\nDo you know which pattern your turnip prices were following **last week?**\nPlease use the reactions below to enter your pattern. If you don't know your pattern, you can ignore this message.\n\n${patternEmoji.large_spike} Large spike \n${patternEmoji.small_spike} Small spike \n${patternEmoji.fluctuating} Fluctuating \n${patternEmoji.decreasing} Decreasing`,
+                        description: `It seems like you've entered turnip prices last week that have now run their course!\nDo you know which pattern your turnip prices were following **last week?**\nPlease use the reactions below to enter your pattern. If you don't know your pattern, you can ignore this message.\n\n${patternEmoji.largeSpike} Large spike \n${patternEmoji.smallSpike} Small spike \n${patternEmoji.fluctuating} Fluctuating \n${patternEmoji.decreasing} Decreasing`,
                         color: "LUMINOUS_VIVID_PINK",
                     });
                     user.send(askForLastPatternEmbed)
                         .then(sentMessage => {
                         for (const key in patternEmoji) {
-                            sentMessage.react(patternEmoji[key]);
+                            sentMessage.react(patternEmoji[key]).catch(err => console.error(err));
                         }
                         const patternCollector = sentMessage.createReactionCollector((r, u) => !u.bot && Object.values(patternEmoji).includes(r.emoji.name), {
                             time: 5 * 60 * 1000,
@@ -242,7 +243,7 @@ class UserEntry {
     }
 }
 __weekPrices = new WeakMap();
-class priceEntry {
+class PriceEntry {
     constructor(userId, price, expiresAt = null) {
         // sanity checks. these *can* be made redundant, but you can also just handle errors
         if (!(userId in userData))
@@ -259,7 +260,7 @@ class priceEntry {
         return this.expiresAt.diff(moment().tz(this.user.timezone));
     }
     timeLeftString() {
-        let timeLeft = this.timeLeft();
+        const timeLeft = this.timeLeft();
         return `${Math.floor((timeLeft / 3600000) % 24)}h${Math.floor((timeLeft / 60000) % 60)}m`;
     }
     getPriceInterval() {
@@ -270,8 +271,8 @@ class priceEntry {
         // ...
         // Saturday AM: 11
         // Saturday PM: 12
-        let user_tz = userData[this.user.id].timezone;
-        let m = moment().tz(user_tz);
+        const userTz = userData[this.user.id].timezone;
+        const m = moment().tz(userTz);
         if (m.day() == 0) {
             return 0;
         }
@@ -282,15 +283,15 @@ class priceEntry {
     updatePrice(price) {
         if (isNaN(price) || price < 0 || price > 1000 || price % 1 != 0)
             throw new RangeError("Supplied price " + price + " is invalid");
-        let now_tz = moment().tz(userData[this.user.id].timezone); // the current time, adjusted with the timezone of the user.
-        if (now_tz.weekday() == 7)
+        const nowTz = moment().tz(userData[this.user.id].timezone); // the current time, adjusted with the timezone of the user.
+        if (nowTz.weekday() == 7)
             throw new RangeError("Cannot create offers on a sunday - turnips aren't sold on sundays.");
         this._price = price;
         this.user.weekPrices[this.getPriceInterval()] = price;
-        this.expiresAt = now_tz.hour() < 12 ? now_tz.clone().hour(12).minute(0).second(0).millisecond(0) : now_tz.clone().hour(24).minute(0).second(0).millisecond(0);
+        this.expiresAt = nowTz.hour() < 12 ? nowTz.clone().hour(12).minute(0).second(0).millisecond(0) : nowTz.clone().hour(24).minute(0).second(0).millisecond(0);
     }
     static fromRaw(id, obj) {
-        return new priceEntry(id, obj._price, obj.expiresAt);
+        return new PriceEntry(id, obj._price, obj.expiresAt);
     }
     get price() {
         if (this.timeLeft() <= 0) { // entry has expired - delete self and return false.
@@ -304,7 +305,7 @@ class priceEntry {
 const queueAcceptingMinutes = parseInt(getEnv('DISCORD_STONKS_QUEUEACCEPTINGMINUTES', '30'));
 const queueToSellMinutes = parseInt(getEnv('DISCORD_STONKS_QUEUETOSELLMINUTES', '7'));
 const queueMultiGroupSize = parseInt(getEnv('DISCORD_STONKS_QUEUEMULTIGROUPSIZE', '3'));
-class queueEntry {
+class QueueEntry {
     constructor(userId) {
         this.id = userId; // to allow for self-deletion
         this.dodoCode = null;
@@ -345,14 +346,14 @@ class queueEntry {
         if (this._rawQueues.single.filter(e => e.user.id == userObject.id).length > 0 || this._rawQueues.some.filter(e => e.user.id == userObject.id).length > 0 || this._rawQueues.multi.filter(e => e.user.id == userObject.id).length > 0)
             return;
         // Make sure the user is DM-able, and send confirmation message.
-        let addedToQueueEmbed = new Discord.MessageEmbed({
+        const addedToQueueEmbed = new Discord.MessageEmbed({
             color: 16711907,
             description: `You have been added to the queue for a maximum of ${type == 'single' ? '1' : type == 'some' ? "3" : "unlimited"} visit(s).\nYour estimated wait time is **⏳ minutes**.\nIf you wish to leave the queue, click 👋.`
         });
         userObject.send(addedToQueueEmbed)
             .then(confirmationMsg => {
             // Add the user to the respective raw queue, and fire an update on the queue (in case it is empty to immediately allow the user to join)
-            this._rawQueues[type].push(new queueUserEntry(userObject, this, type));
+            this._rawQueues[type].push(new QueueUserEntry(userObject, this, type));
             this.update();
             // Get the estimated wait-time and put it in the message
             addedToQueueEmbed.description = addedToQueueEmbed.description.replace("⏳", this._rawQueues[type].find(e => e.user.id == userObject.id).estimatedWaitTime());
@@ -363,7 +364,7 @@ class queueEntry {
             leaveQueueCollector.on('collect', (leaveR, leavingUser) => {
                 if (!this)
                     return; // just in case the queue was already deleted
-                let foundUserIndex = this._rawQueues[type].findIndex(e => e.user.id == leavingUser.id);
+                const foundUserIndex = this._rawQueues[type].findIndex(e => e.user.id == leavingUser.id);
                 if (foundUserIndex >= 0 && foundUserIndex > this.queuePositions[type]) {
                     this._rawQueues[type].splice(foundUserIndex, 1);
                     leavingUser.send({ embed: {
@@ -402,9 +403,9 @@ class queueEntry {
     get nextUserEntry() {
         if (this.processingGroup.type && this.nextUserIndexFromProcessingGroup > -1)
             return this._rawQueues[this.processingGroup.type][this.nextUserIndexFromProcessingGroup];
-        let single_active = this.currentUserProcessed && this.currentUserProcessed.type == 'single';
-        if (this.remainingUsersInSubqueue('single') >= (single_active ? 2 : 1))
-            return this._rawQueues.single[this.queuePositions.single + (single_active ? 1 : 0)];
+        const singleActive = this.currentUserProcessed && this.currentUserProcessed.type == 'single';
+        if (this.remainingUsersInSubqueue('single') >= (singleActive ? 2 : 1))
+            return this._rawQueues.single[this.queuePositions.single + (singleActive ? 1 : 0)];
         if (this.processingGroup.type == 'some' && this.processingGroup.firstIndex + queueMultiGroupSize >= this._rawQueues.some.length)
             return this._rawQueues.some[this.processingGroup.firstIndex + queueMultiGroupSize];
         if (this.remainingUsersInSubqueue('some') >= 1)
@@ -478,7 +479,7 @@ class queueEntry {
         }
     }
 }
-class queueUserEntry {
+class QueueUserEntry {
     constructor(userObject, queue, type) {
         this.user = userObject;
         this.queue = queue;
@@ -517,7 +518,7 @@ class queueUserEntry {
             return;
         }
         const isLastVisit = this.grantedVisits + 1 >= this.maxVisits;
-        let yourTurnEmbed = new Discord.MessageEmbed({
+        const yourTurnEmbed = new Discord.MessageEmbed({
             title: "⏰ It's your turn!",
             color: 16312092,
             description: `You have **${queueToSellMinutes} minutes** to connect, sell your turnips, and leave the island.\nOnce your timeslot expires, the next user in the queue will be automatically messaged.\nShould you be done early, please click 👍 to notify that you're done.${isLastVisit ? "" : "\nIf you wish to reconnect later to sell more, click 🔁 to be added to the queue again. *Please note that this also ends your turn!*"}`,
@@ -608,7 +609,7 @@ function bestStonksEmbed() {
             });
         }
     }
-    let output = new Discord.MessageEmbed();
+    const output = new Discord.MessageEmbed();
     output.author = { name: "📈 current stalnks" };
     output.color = 16711907;
     output.description = "Keep in mind that Nook's Cranny is *usually* open between 8am - 10pm local time.";
@@ -620,7 +621,7 @@ function bestStonksEmbed() {
 function userProfileEmbed(member) {
     if (!userData.hasOwnProperty(member.user.id))
         throw new ReferenceError("Profile embed was requested, but user was never registered");
-    let output = new Discord.MessageEmbed();
+    const output = new Discord.MessageEmbed();
     output.author = { name: member.displayName, iconURL: member.user.avatarURL() };
     output.color = 16711907;
     output.fields = [
@@ -655,7 +656,7 @@ function stringOrArrayToInterval(input = undefined) {
         input = input.join(" ");
     input = input.toLowerCase();
     // Check if just a number was specified (legacy system)
-    let numberCheck = parseInt(input);
+    const numberCheck = parseInt(input);
     if (!isNaN(numberCheck)) { // just a number was supplied
         if (numberCheck > 12 || numberCheck < 0)
             return -1; // Invalid interval
@@ -689,7 +690,7 @@ function weekIntervalToString(interval) {
     }
     return weekDayName;
 }
-let bestStonksUpdateInterval = setInterval(sendBestStonksToUpdateChannel, 5 * 60 * 1000); // update best prices every 5 minutes
+const bestStonksUpdateInterval = setInterval(sendBestStonksToUpdateChannel, 5 * 60 * 1000); // update best prices every 5 minutes
 const MINIMUM_PRICE_FOR_PING = parseInt(getEnv("DISCORD_STONKS_MINIMUM_PRICE_FOR_PING", 400));
 const PING_ROLE_ID = getEnv("DISCORD_STONKS_PING_ROLE_ID", false);
 let goodPricePingRole;
@@ -745,7 +746,7 @@ client.on('message', msg => {
     // help i've fallen and I can't get up
     if (msg.content.startsWith(msgPrefix + helpInvoker)) {
         const helpEmbed = new Discord.MessageEmbed({
-            author: { name: client.user.username, icon_url: client.user.avatarURL() },
+            author: { name: client.user.username, iconURL: client.user.avatarURL() },
             title: "Hi, I'm stalnks!",
             description: "I try to keep track of ~~stock~~ stalk prices in Animal Crossing.",
             color: 16711907,
@@ -779,7 +780,7 @@ client.on('message', msg => {
                 text: "Made with ❤ by baa baa black goat"
             },
         });
-        sendDismissableMessage(msg.channel, helpEmbed, msg.author.id);
+        sendDismissibleMessage(msg.channel, helpEmbed, msg.author.id);
     }
     // Show profile
     if (msg.content.startsWith(msgPrefix + profileInvoker)) {
@@ -787,28 +788,28 @@ client.on('message', msg => {
         if (msg.mentions.members.size > 0) {
             if (msg.mentions.members.size > 1) {
                 const moreThanOneProfileEmbed = new Discord.MessageEmbed({
-                    author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                    author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                     color: 16312092,
                     description: `⚠ I can only show one user's profile at a time.`
                 });
-                sendDismissableMessage(msg.channel, moreThanOneProfileEmbed, msg.author.id);
+                sendDismissibleMessage(msg.channel, moreThanOneProfileEmbed, msg.author.id);
                 return;
             }
-            let target = msg.mentions.members.first();
+            const target = msg.mentions.members.first();
             if (!userData.hasOwnProperty(target.id)) {
                 const noMentionedProfileEmbed = new Discord.MessageEmbed({
-                    author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                    author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                     color: 16312092,
                     description: `⚠ The mentioned user ${target.user.tag} does not have a profile with me.`
                 });
-                sendDismissableMessage(msg.channel, noMentionedProfileEmbed, msg.author.id);
+                sendDismissibleMessage(msg.channel, noMentionedProfileEmbed, msg.author.id);
                 return;
             }
-            msg.channel.send(userProfileEmbed(msg.mentions.members.first()));
+            msg.channel.send(userProfileEmbed(msg.mentions.members.first())).catch(err => console.error(err));
             return;
         }
         // if there's more data try to find a member by name
-        let possibleUsername = msg.content.substring(msgPrefix.length + profileInvoker.length).trim();
+        const possibleUsername = msg.content.substring(msgPrefix.length + profileInvoker.length).trim();
         if (possibleUsername.length > 0) {
             msg.guild.members.fetch()
                 .then(guildMembers => {
@@ -817,46 +818,46 @@ client.on('message', msg => {
                     target = guildMembers.find(guildMember => guildMember.user.username == possibleUsername);
                 if (!target) {
                     const noMemberWithNameFoundEmbed = new Discord.MessageEmbed({
-                        author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                        author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                         color: 16312092,
                         description: `⚠ I couldn't find a member on this server with this name.`
                     });
-                    sendDismissableMessage(msg.channel, noMemberWithNameFoundEmbed, msg.author.id);
+                    sendDismissibleMessage(msg.channel, noMemberWithNameFoundEmbed, msg.author.id);
                     return;
                 }
                 if (!userData.hasOwnProperty(target.id)) {
                     const noProfileEmbed = new Discord.MessageEmbed({
-                        author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                        author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                         color: 16312092,
                         description: `⚠ The found user ${target.user.tag} does not have a profile with me.`
                     });
-                    sendDismissableMessage(msg.channel, noProfileEmbed, msg.author.id);
+                    sendDismissibleMessage(msg.channel, noProfileEmbed, msg.author.id);
                     return;
                 }
-                sendDismissableMessage(msg.channel, userProfileEmbed(target), msg.author.id);
+                sendDismissibleMessage(msg.channel, userProfileEmbed(target), msg.author.id);
                 return;
             }).catch(err => {
                 console.log("Error while fetching guild members to show other users profile: " + err);
                 const somethingWentWrongMemberFetchEmbed = new Discord.MessageEmbed({
-                    author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                    author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                     color: 16312092,
                     description: `♿ Something went wrong while fetching the server members. Please try again later.`
                 });
-                sendDismissableMessage(msg.channel, somethingWentWrongMemberFetchEmbed, msg.author.id);
+                sendDismissibleMessage(msg.channel, somethingWentWrongMemberFetchEmbed, msg.author.id);
             });
             return;
         }
         // if there's no data, get the profile of the invoking user
         if (!userData.hasOwnProperty(msg.member.id)) {
             const noSelfProfileEmbed = new Discord.MessageEmbed({
-                author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                 color: 16312092,
                 description: `⚠ You don't have a profile with me!`
             });
-            sendDismissableMessage(msg.channel, noSelfProfileEmbed, msg.author.id);
+            sendDismissibleMessage(msg.channel, noSelfProfileEmbed, msg.author.id);
             return;
         }
-        sendDismissableMessage(msg.channel, userProfileEmbed(msg.member), msg.author.id); // show invoking member profile;
+        sendDismissibleMessage(msg.channel, userProfileEmbed(msg.member), msg.author.id); // show invoking member profile;
         return;
     }
     // set/update timezone
@@ -864,19 +865,19 @@ client.on('message', msg => {
         let timezone = msg.content.substring(msgPrefix.length + timezoneInvoker.length).trim().replace(" ", "_");
         if (timezone == 'list') {
             const timezoneListEmbed = new Discord.MessageEmbed({
-                author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                 color: 4886754,
                 description: `You can estimate your timezone here:\nhttps://baabaablackgoat.com/getTimezone\n\nAlternatively, here's a list of all available timezones: \n${zoneListURL}`
             });
-            sendDismissableMessage(msg.channel, timezoneListEmbed, msg.author.id);
+            sendDismissibleMessage(msg.channel, timezoneListEmbed, msg.author.id);
             return;
         }
         if (!moment.tz.names().includes(timezone)) {
             // attempt to find the timezone in a lowercased list
-            let tzLowerIndex = lowercasedTimezones.indexOf(timezone.toLowerCase());
+            const tzLowerIndex = lowercasedTimezones.indexOf(timezone.toLowerCase());
             if (tzLowerIndex < 0) { // not retrievable even in lowercase
                 const invalidTimezoneEmbed = new Discord.MessageEmbed({
-                    author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                    author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                     color: 16312092,
                     description: `⚠ **${timezone} is not a valid timezone.**`,
                     fields: [
@@ -885,7 +886,7 @@ client.on('message', msg => {
                         { name: "All timezones", value: `Here's a list of all valid timezones: ${zoneListURL}.` }
                     ]
                 });
-                sendDismissableMessage(msg.channel, invalidTimezoneEmbed, msg.author.id);
+                sendDismissibleMessage(msg.channel, invalidTimezoneEmbed, msg.author.id);
                 return;
             }
             else {
@@ -898,19 +899,19 @@ client.on('message', msg => {
             userData[msg.author.id] = new UserEntry(msg.author.id, timezone, null, null, null, null, true);
         if (inaccurateTimezones.includes(timezone)) {
             const confirmDangerousTimezoneSetEmbed = new Discord.MessageEmbed({
-                author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                 color: 4289797,
                 description: `✅ Your timezone is now set to ${timezone}. It should be ${moment().tz(timezone).format("dddd, MMMM Do YYYY, h:mm:ss a")}.\n**Please note that this timezone does NOT account for things like Daylight Savings.** It is highly recommended to switch to a timezone involving your location.`
             });
-            sendDismissableMessage(msg.channel, confirmDangerousTimezoneSetEmbed, msg.author.id);
+            sendDismissibleMessage(msg.channel, confirmDangerousTimezoneSetEmbed, msg.author.id);
         }
         else {
             const confirmTimezoneSetEmbed = new Discord.MessageEmbed({
-                author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                 color: 4289797,
                 description: `✅ Your timezone is now set to ${timezone}. It should be ${moment().tz(timezone).format("dddd, MMMM Do YYYY, h:mm:ss a")}`
             });
-            sendDismissableMessage(msg.channel, confirmTimezoneSetEmbed, msg.author.id);
+            sendDismissibleMessage(msg.channel, confirmTimezoneSetEmbed, msg.author.id);
         }
         return;
     }
@@ -921,55 +922,55 @@ client.on('message', msg => {
         if (['remove', 'delete', 'no'].includes(fc)) {
             if (!userData.hasOwnProperty(msg.author.id) || !userData[msg.author.id].friendcode) {
                 const noFriendcodeFoundEmbed = new Discord.MessageEmbed({
-                    author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                    author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                     color: 13632027,
                     description: `⚠ No friendcode associated with your user was found.`
                 });
-                sendDismissableMessage(msg.channel, noFriendcodeFoundEmbed, msg.author.id);
+                sendDismissibleMessage(msg.channel, noFriendcodeFoundEmbed, msg.author.id);
                 return;
             }
             userData[msg.author.id].friendcode = null;
             const friendcodeRemovedEmbed = new Discord.MessageEmbed({
-                author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                 color: 13632027,
                 description: `🚮 Your friend code has been removed.`
             });
-            sendDismissableMessage(msg.channel, friendcodeRemovedEmbed, msg.author.id);
+            sendDismissibleMessage(msg.channel, friendcodeRemovedEmbed, msg.author.id);
             return;
         }
         if (!fcRegex.test(fc)) {
             const invalidFriendcodeEmbed = new Discord.MessageEmbed({
-                author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                 color: 16312092,
                 description: `⚠ Your supplied friend code is invalid. Valid formatting: \`SW-XXXX-XXXX-XXXX\``
             });
-            sendDismissableMessage(msg.channel, invalidFriendcodeEmbed, msg.author.id);
+            sendDismissibleMessage(msg.channel, invalidFriendcodeEmbed, msg.author.id);
             return;
         }
         if (userData.hasOwnProperty(msg.author.id)) {
             userData[msg.author.id].friendcode = fc;
             const friendcodeAddedEmbed = new Discord.MessageEmbed({
-                author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                 color: 4289797,
                 description: `✅ Your friendcode has been added to your profile.`
             });
-            sendDismissableMessage(msg.channel, friendcodeAddedEmbed, msg.author.id);
+            sendDismissibleMessage(msg.channel, friendcodeAddedEmbed, msg.author.id);
             return;
         }
         else {
             userData[msg.author.id] = new UserEntry(msg.author.id, null, fc, null, null, null, true);
             const profileWithFriendcodeCreatedEmbed = new Discord.MessageEmbed({
-                author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                 color: 4289797,
                 description: `✅ Your profile with the associated friend code has been created.`
             });
-            sendDismissableMessage(msg.channel, profileWithFriendcodeCreatedEmbed, msg.author.id);
+            sendDismissibleMessage(msg.channel, profileWithFriendcodeCreatedEmbed, msg.author.id);
             return;
         }
     }
     // list best stonks
     if (msg.content.startsWith(msgPrefix + listInvoker)) {
-        msg.channel.send(bestStonksEmbed());
+        msg.channel.send(bestStonksEmbed()).catch(err => console.error(err));
         return;
     }
     // remove a stonk
@@ -978,55 +979,55 @@ client.on('message', msg => {
             // Check if the user has elevated permissions to remove other entries
             if (!hasElevatedPermissions(msg.member)) {
                 const noPermissionRemoveEmbed = new Discord.MessageEmbed({
-                    author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                    author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                     color: 16312092,
                     description: `⚠ You don't have permission to remove other users' entries.`
                 });
-                // THESE MESSAGES ARE PURPOSELY NOT DISMISSABLE TO BLATANTLY SHOW TAMPER ATTEMPTS.
+                // THESE MESSAGES ARE PURPOSELY NOT DISMISSIBLE TO BLATANTLY SHOW TAMPER ATTEMPTS.
                 msg.channel.send(noPermissionRemoveEmbed);
                 return;
             }
             if (msg.mentions.members.size > 1) {
                 const tooManyMentionsEmbed = new Discord.MessageEmbed({
-                    author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                    author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                     color: 16312092,
                     description: `⚠ You've mentioned too many people! I can only remove one price at a time.`
                 });
-                sendDismissableMessage(msg.channel, tooManyMentionsEmbed, msg.author.id);
+                sendDismissibleMessage(msg.channel, tooManyMentionsEmbed, msg.author.id);
                 return;
             }
             // Removing the other users' listing
-            let target = msg.mentions.members.first();
+            const target = msg.mentions.members.first();
             if (!priceData.hasOwnProperty(target.id)) {
                 const noOtherUserPriceEmbed = new Discord.MessageEmbed({
-                    author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                    author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                     color: 16312092,
                     description: `⚠ ${target.user.tag} does not seem to have a registered price.`
                 });
-                sendDismissableMessage(msg.channel, noOtherUserPriceEmbed, msg.author.id);
+                sendDismissibleMessage(msg.channel, noOtherUserPriceEmbed, msg.author.id);
                 return;
             }
             delete priceData[target.id];
             sendBestStonksToUpdateChannel();
             const removedOtherUserPriceEmbed = new Discord.MessageEmbed({
-                author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                 color: 4289797,
                 description: `🗑 The listing of ${target.user.tag} has been removed.`
             });
-            sendDismissableMessage(msg.channel, removedOtherUserPriceEmbed, msg.author.id);
+            sendDismissibleMessage(msg.channel, removedOtherUserPriceEmbed, msg.author.id);
             return;
         }
-        let possibleUsername = msg.content.substring(msgPrefix.length + removeInvoker.length).trim();
+        const possibleUsername = msg.content.substring(msgPrefix.length + removeInvoker.length).trim();
         if (possibleUsername.length > 0) {
             // Check if the user has elevated permissions to remove other entries
             if (!hasElevatedPermissions(msg.member)) {
                 const noPermissionRemoveEmbed = new Discord.MessageEmbed({
-                    author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                    author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                     color: 16312092,
                     description: `⚠ You don't have permission to remove other users' entries.`
                 });
                 // THESE MESSAGES ARE PURPOSELY NOT DISMISSABLE TO BLATANTLY SHOW TAMPER ATTEMPTS.
-                msg.channel.send(noPermissionRemoveEmbed);
+                msg.channel.send(noPermissionRemoveEmbed).catch(err => console.error(err));
                 return;
             }
             msg.guild.members.fetch()
@@ -1036,99 +1037,99 @@ client.on('message', msg => {
                     target = guildMembers.find(guildMember => guildMember.user.username == possibleUsername);
                 if (!target) {
                     const noMemberWithNameFoundEmbed = new Discord.MessageEmbed({
-                        author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                        author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                         color: 16312092,
                         description: `⚠ I couldn't find a member on this server with this name.`
                     });
-                    sendDismissableMessage(msg.channel, noMemberWithNameFoundEmbed, msg.author.id);
+                    sendDismissibleMessage(msg.channel, noMemberWithNameFoundEmbed, msg.author.id);
                     return;
                 }
                 // Removing the other users' listing
                 if (!priceData.hasOwnProperty(target.id)) {
                     const noOtherUserPriceEmbed = new Discord.MessageEmbed({
-                        author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                        author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                         color: 16312092,
                         description: `⚠ ${target.user.tag} does not seem to have a registered price.`
                     });
-                    sendDismissableMessage(msg.channel, noOtherUserPriceEmbed, msg.author.id);
+                    sendDismissibleMessage(msg.channel, noOtherUserPriceEmbed, msg.author.id);
                     return;
                 }
                 delete priceData[target.id];
                 sendBestStonksToUpdateChannel();
                 const removedOtherUserPriceEmbed = new Discord.MessageEmbed({
-                    author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                    author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                     color: 4289797,
                     description: `🗑 The listing of ${target.user.tag} has been removed.`
                 });
-                sendDismissableMessage(msg.channel, removedOtherUserPriceEmbed, msg.author.id);
+                sendDismissibleMessage(msg.channel, removedOtherUserPriceEmbed, msg.author.id);
                 return;
             }).catch(err => {
                 console.log("Error while trying to remove a listing from another user: " + err);
                 const somethingWentWrongMemberFetchEmbed = new Discord.MessageEmbed({
-                    author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                    author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                     color: 16312092,
                     description: `♿ Something went wrong while fetching the server members. Please try again later.`
                 });
-                sendDismissableMessage(msg.channel, somethingWentWrongMemberFetchEmbed, msg.author.id);
+                sendDismissibleMessage(msg.channel, somethingWentWrongMemberFetchEmbed, msg.author.id);
             });
             return;
         }
         // Removing your own listing
         if (!priceData.hasOwnProperty(msg.author.id)) {
             const noSelfListingEmbed = new Discord.MessageEmbed({
-                author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                 color: 16312092,
                 description: `⚠ You currently don't have any active listings.`
             });
-            sendDismissableMessage(msg.channel, noSelfListingEmbed, msg.author.id);
+            sendDismissibleMessage(msg.channel, noSelfListingEmbed, msg.author.id);
             return;
         }
         delete priceData[msg.author.id];
         sendBestStonksToUpdateChannel();
         const selfListingRemovedEmbed = new Discord.MessageEmbed({
-            author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+            author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
             color: 4289797,
             description: `🗑 Your listing has been removed.`
         });
-        sendDismissableMessage(msg.channel, selfListingRemovedEmbed, msg.author.id);
+        sendDismissibleMessage(msg.channel, selfListingRemovedEmbed, msg.author.id);
         return;
     }
     // letting users remove their week price data
     if (msg.content.startsWith(msgPrefix + removeWeekPriceInvoker)) {
         if (!userData.hasOwnProperty(msg.author.id)) {
             const noProfileWeekRemoveEmbed = new Discord.MessageEmbed({
-                author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                 color: 16312092,
                 description: `⚠ You didn't register a profile with me so far.`
             });
-            sendDismissableMessage(msg.channel, noProfileWeekRemoveEmbed, msg.author.id);
+            sendDismissibleMessage(msg.channel, noProfileWeekRemoveEmbed, msg.author.id);
             return;
         }
-        let targetForDeletion = stringOrArrayToInterval(msg.content.substr(msgPrefix.length + removeWeekPriceInvoker.length).trim());
+        const targetForDeletion = stringOrArrayToInterval(msg.content.substr(msgPrefix.length + removeWeekPriceInvoker.length).trim());
         if (targetForDeletion < 0) {
             const invalidIntervalWeekRemoveEmbed = new Discord.MessageEmbed({
-                author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                 color: 16312092,
                 description: `⚠ You have specified an invalid interval.`
             });
-            sendDismissableMessage(msg.channel, invalidIntervalWeekRemoveEmbed, msg.author.id);
+            sendDismissibleMessage(msg.channel, invalidIntervalWeekRemoveEmbed, msg.author.id);
             return;
         }
         if (!userData[msg.author.id].weekPrices[targetForDeletion]) {
             const noDataWeekRemoveEmbed = new Discord.MessageEmbed({
-                author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                 color: 16312092,
                 description: `⚠ There doesn't seem to be any price stored for you at ${weekIntervalToString(targetForDeletion)}.`
             });
-            sendDismissableMessage(msg.channel, noDataWeekRemoveEmbed, msg.author.id);
+            sendDismissibleMessage(msg.channel, noDataWeekRemoveEmbed, msg.author.id);
             return;
         }
         const weekDataRemovedEmbed = new Discord.MessageEmbed({
-            author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+            author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
             color: 4289797,
             description: `🚮 I've removed your price data at ${weekIntervalToString(targetForDeletion)}.`
         });
-        sendDismissableMessage(msg.channel, weekDataRemovedEmbed, msg.author.id);
+        sendDismissibleMessage(msg.channel, weekDataRemovedEmbed, msg.author.id);
         userData[msg.author.id].weekPrices[targetForDeletion] = '';
         return;
     }
@@ -1137,17 +1138,17 @@ client.on('message', msg => {
     if (msg.content.startsWith(msgPrefix + queueInvoker)) {
         if (queueData.hasOwnProperty(msg.author.id)) { // prevent two queues from one user
             const alreadyExistingQueueEmbed = new Discord.MessageEmbed({
-                author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                 color: 16312092,
                 description: `♿ You seem to already have a running queue!`
             });
-            sendDismissableMessage(msg.channel, alreadyExistingQueueEmbed, msg.author.id);
+            sendDismissibleMessage(msg.channel, alreadyExistingQueueEmbed, msg.author.id);
             return;
         }
         // Create a new queue
-        queueData[msg.author.id] = new queueEntry(msg.author.id);
+        queueData[msg.author.id] = new QueueEntry(msg.author.id);
         msg.author.send({ embed: {
-                author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                 color: 16711907,
                 description: `ℹ Please send your Dodo-Code™ as a direct DM to me.\nIf you wish to add more information, simply put it in *the same message* separated from the Dodo-Code™ with a single space. Keep your additional information PG, please.\nExample: \`A1BC2 Nook's Cranny is in the top left corner!\`\n **This request will expire in 3 minutes.**`
             } })
@@ -1159,10 +1160,10 @@ client.on('message', msg => {
             dodoCodeCollector.on('end', (collected, reason) => {
                 if (reason == 'time' || collected.size != 1) {
                     dmMsg.edit({ embed: {
-                            author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                            author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                             color: 16312092,
                             description: `⚠ This queue creation request has expired, or the sent message was invalid.`
-                        } });
+                        } }).catch(err => console.error(err));
                     // Update the queue info message to notify users this queue was never created.
                     if (informationMessage) {
                         informationEmbed.description = `❌ This queue has been cancelled or has timed out on creation.`;
@@ -1173,20 +1174,20 @@ client.on('message', msg => {
                 }
                 else {
                     dmMsg.edit({ embed: {
-                            author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                            author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                             color: 4289797,
                             description: `✅ Your Dodo code and possible additional information have been added. Queueing will now commence.\n**If you wish to stop accepting new entries, reply in this channel with \`${msgPrefix}${userRequestedStopInvoker}\`**. This will not immediately stop the queue, but no further users will be able to join!`
-                        } });
+                        } }).catch(err => console.error(err));
                     // Allow the user to close his queue
                     const stopQueueMessageCollector = dmMsg.channel.createMessageCollector(m => !m.author.bot && m.content === `${msgPrefix}${userRequestedStopInvoker}`, { time: 12 * 60 * 60 * 1000, max: 1 });
                     stopQueueMessageCollector.on('collect', stopMessage => {
                         if (queueData.hasOwnProperty(msg.author.id))
                             queueData[msg.author.id].joinReactionCollector.stop("User has requested queue closure");
                         dmMsg.channel.send({ embed: {
-                                author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                                author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                                 color: 4289797,
                                 description: `🛑 Your queue now no longer accepts any new entries, but is still running.`
-                            } });
+                            } }).catch(err => console.error(err));
                     });
                     // Update the new queue entry with the collected message
                     const collectedCreatorMessage = collected.first();
@@ -1209,7 +1210,7 @@ client.on('message', msg => {
             // Create a message for users to react to to join the queue.
             const joinEmoteList = ['☝', '✌', '🔁']; // modify this if you wanna change the emotes used
             informationEmbed = new Discord.MessageEmbed();
-            informationEmbed.author = { name: msg.member.displayName, icon_url: msg.author.avatarURL() };
+            informationEmbed.author = { name: msg.member.displayName, iconURL: msg.author.avatarURL() };
             informationEmbed.color = 16711907;
             informationEmbed.description = `ℹ A queue is currently being set up for **${priceData.hasOwnProperty(msg.author.id) ? priceData[msg.author.id].price : "an unknown amount of"} Bells.**\n If you wish to join this queue, react to this message according to the amount of visits you are planning to do.`;
             informationEmbed.fields = [
@@ -1221,7 +1222,7 @@ client.on('message', msg => {
             msg.channel.send(informationEmbed).then(reactionJoinMsg => {
                 informationMessage = reactionJoinMsg;
                 for (let i = 0; i < joinEmoteList.length; i++) {
-                    reactionJoinMsg.react(joinEmoteList[i]);
+                    reactionJoinMsg.react(joinEmoteList[i]).catch(err => console.error(err));
                 }
                 queueData[msg.author.id].joinReactionCollector = reactionJoinMsg.createReactionCollector((r, u) => !u.bot && u.id != msg.author.id && joinEmoteList.includes(r.emoji.name), { time: 12 * 60 * 60 * 1000 });
                 queueData[msg.author.id].joinReactionCollector.on('collect', (reaction, reactingUser) => {
@@ -1233,34 +1234,35 @@ client.on('message', msg => {
                     if (queueData.hasOwnProperty(msg.author.id))
                         queueData[msg.author.id].acceptingEntries = false;
                     reactionJoinMsg.edit({ embed: {
-                            author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                            author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                             color: 16711907,
                             description: `🛑 Signup for this queue has been closed, and no further entries will be accepted.`
-                        } });
+                        } }).catch(err => console.error(err));
                     queueData[msg.author.id].update();
                 });
-            });
+            }).catch(err => console.error(err));
         })
             .catch(err => {
             msg.channel.send({ embed: {
-                    author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                    author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                     color: 16312092,
                     description: `⚠ I was unable to send you a direct message. Please enable direct messages for this server.`
-                } });
+                } }).catch(errMessageFailed => console.error(errMessageFailed));
+            console.log(`Couldn't message user for queue creation: ${err}`);
         });
     }
     if (msg.content.startsWith(msgPrefix + weekInvoker)) {
         if (!userData.hasOwnProperty(msg.author.id)) { // check if profile exists
             const noProfileWeekStats = new Discord.MessageEmbed({
-                author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                 color: 16312092,
                 description: `⚠ You didn't register a profile with me so far.`
             });
-            sendDismissableMessage(msg.channel, noProfileWeekStats, msg.author.id);
+            sendDismissibleMessage(msg.channel, noProfileWeekStats, msg.author.id);
             return;
         }
-        let weekPrices = userData[msg.author.id].weekPrices;
-        let weeks = [
+        const weekPrices = userData[msg.author.id].weekPrices;
+        const weeks = [
             ["Mon", 1],
             ["Tue", 3],
             ["Wed", 5],
@@ -1269,7 +1271,7 @@ client.on('message', msg => {
             ["Sat", 11],
         ];
         const weekStatEmbed = new Discord.MessageEmbed({
-            author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+            author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
             title: "Your week's (registered) prices",
             color: 16711907,
             fields: [
@@ -1288,38 +1290,38 @@ client.on('message', msg => {
                 }
             ])
         });
-        sendDismissableMessage(msg.channel, weekStatEmbed, msg.author.id);
+        sendDismissibleMessage(msg.channel, weekStatEmbed, msg.author.id);
         return;
     }
     // Just the turnip prophet link
     if (msg.content.startsWith(msgPrefix + prophetInvoker)) {
         if (!userData.hasOwnProperty(msg.author.id)) {
             const noProfileProphetEmbed = new Discord.MessageEmbed({
-                author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                 color: 16312092,
                 description: `⚠ You didn't register a profile with me so far.`
             });
-            sendDismissableMessage(msg.channel, noProfileProphetEmbed, msg.author.id);
+            sendDismissibleMessage(msg.channel, noProfileProphetEmbed, msg.author.id);
             return;
         }
         const prophetLinkEmbed = new Discord.MessageEmbed({
-            author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+            author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
             title: "This week's predictions",
             description: `**${userData[msg.author.id].turnipProphetURL}**\n\nPlease note that turnipprophet.io was NOT made by us, and leads to said external site. We don't have control over the things shown there, only about the price input.\nTurnipprophet was created by Mike Bryant: https://github.com/mikebryant/ac-nh-turnip-prices/`,
             color: 16711907,
         });
-        sendDismissableMessage(msg.channel, prophetLinkEmbed, msg.author.id);
+        sendDismissibleMessage(msg.channel, prophetLinkEmbed, msg.author.id);
         return;
     }
     // Retroactively setting your last pattern
     if (msg.content.startsWith(msgPrefix + lastPatternInvoker)) {
         if (!userData.hasOwnProperty(msg.author.id)) {
             const noProfilePatternEmbed = new Discord.MessageEmbed({
-                author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                 color: 16312092,
                 description: `⚠ You didn't register a profile with me so far.`
             });
-            sendDismissableMessage(msg.channel, noProfilePatternEmbed, msg.author.id);
+            sendDismissibleMessage(msg.channel, noProfilePatternEmbed, msg.author.id);
             return;
         }
         const knownPatterns = [
@@ -1328,201 +1330,201 @@ client.on('message', msg => {
             ["decreasing", "📉", "2"],
             ["small_spike", "📈", "3"],
         ];
-        let requestedPattern = msg.content.substr(msgPrefix.length + lastPatternInvoker.length).trim().replace(" ", "_").toLowerCase();
-        let foundPattern = knownPatterns.findIndex(el => el.includes(requestedPattern));
+        const requestedPattern = msg.content.substr(msgPrefix.length + lastPatternInvoker.length).trim().replace(" ", "_").toLowerCase();
+        const foundPattern = knownPatterns.findIndex(el => el.includes(requestedPattern));
         userData[msg.author.id].lastWeekPattern = foundPattern;
         const changedPatternEmbed = new Discord.MessageEmbed({
-            author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+            author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
             color: 4289797,
             description: `✅ I've changed your pattern from last week to ${foundPattern > -1 ? knownPatterns[foundPattern][0] : "\"I don't know.\""}.`
         });
-        sendDismissableMessage(msg.channel, changedPatternEmbed, msg.author.id);
+        sendDismissibleMessage(msg.channel, changedPatternEmbed, msg.author.id);
         return;
     }
     // Opt-out of pattern dms
     if (msg.content.startsWith(msgPrefix + optOutPatternDMInvoker)) {
         if (!userData.hasOwnProperty(msg.author.id)) {
             const noProfileOptOutEmbed = new Discord.MessageEmbed({
-                author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                 color: 16312092,
                 description: `⚠ You didn't register a profile with me so far - you won't be DM'ed unless you save prices with me.`
             });
-            sendDismissableMessage(msg.channel, noProfileOptOutEmbed, msg.author.id);
+            sendDismissibleMessage(msg.channel, noProfileOptOutEmbed, msg.author.id);
             return;
         }
         if (userData[msg.author.id].optInPatternDM == false) {
             const alreadyOptedOutEmbed = new Discord.MessageEmbed({
-                author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                 color: 16312092,
                 description: `⚠ You already are opted out of pattern end-of-week DMs.`
             });
-            sendDismissableMessage(msg.channel, alreadyOptedOutEmbed, msg.author.id);
+            sendDismissibleMessage(msg.channel, alreadyOptedOutEmbed, msg.author.id);
             return;
         }
         userData[msg.author.id].optInPatternDM = false;
         const optedOutEmbed = new Discord.MessageEmbed({
-            author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+            author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
             color: 4289797,
             description: `👋 You have opted out of pattern end-of-week DMs. If you wish to receive pattern question DMs again, use ${msgPrefix + optInPatternDMInvoker}.`
         });
-        sendDismissableMessage(msg.channel, optedOutEmbed, msg.author.id);
+        sendDismissibleMessage(msg.channel, optedOutEmbed, msg.author.id);
         return;
     }
     // Opt-in to pattern dms
     if (msg.content.startsWith(msgPrefix + optInPatternDMInvoker)) {
         if (!userData.hasOwnProperty(msg.author.id)) {
             const noProfileOptInEmbed = new Discord.MessageEmbed({
-                author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                 color: 16312092,
                 description: `⚠ You didn't register a profile with me so far, or more likely asked to remove it - I can't DM you unless you reinstate your profile.`
             });
-            sendDismissableMessage(msg.channel, noProfileOptInEmbed, msg.author.id);
+            sendDismissibleMessage(msg.channel, noProfileOptInEmbed, msg.author.id);
             return;
         }
         if (userData[msg.author.id].optInPatternDM == true) {
             const alreadyOptedOutEmbed = new Discord.MessageEmbed({
-                author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                 color: 16312092,
                 description: `⚠ You already are receiving pattern end-of-week DMs.`
             });
-            sendDismissableMessage(msg.channel, alreadyOptedOutEmbed, msg.author.id);
+            sendDismissibleMessage(msg.channel, alreadyOptedOutEmbed, msg.author.id);
             return;
         }
         userData[msg.author.id].optInPatternDM = true;
         const optedOutEmbed = new Discord.MessageEmbed({
-            author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+            author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
             color: 4289797,
             description: `📝 You have opted in to receive pattern end-of-week DMs. If you wish to stop getting these messages, use ${msgPrefix + optOutPatternDMInvoker}.`
         });
-        sendDismissableMessage(msg.channel, optedOutEmbed, msg.author.id);
+        sendDismissibleMessage(msg.channel, optedOutEmbed, msg.author.id);
         return;
     }
     // Allowing users to remove all their currently stored data - including user profiles! (This will be saved on the next interval)
     if (msg.content.startsWith(msgPrefix + removeAllPersonalDataInvoker)) {
         if (!userData.hasOwnProperty(msg.author.id)) {
             const noProfileDeleteDataEmbed = new Discord.MessageEmbed({
-                author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                 color: 16312092,
                 description: `⚠ You don't seem to have any profile data with me, so there's nothing for me to wipe.`
             });
-            sendDismissableMessage(msg.channel, noProfileDeleteDataEmbed, msg.author.id);
+            sendDismissibleMessage(msg.channel, noProfileDeleteDataEmbed, msg.author.id);
             return;
         }
         if (priceData.hasOwnProperty(msg.author.id) || queueData.hasOwnProperty(msg.author.id)) {
             const cannotDeleteDataRightNowEmbed = new Discord.MessageEmbed({
-                author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                 color: 16312092,
                 description: `⚠ It seems like you currently either have an active price or an active queue.\nI cannot delete your data while either is still ongoing. Please try again later.`
             });
-            sendDismissableMessage(msg.channel, cannotDeleteDataRightNowEmbed, msg.author.id);
+            sendDismissibleMessage(msg.channel, cannotDeleteDataRightNowEmbed, msg.author.id);
             return;
         }
-        let areYouSureDeleteUserEmbed = new Discord.MessageEmbed({
-            author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+        const areYouSureDeleteUserEmbed = new Discord.MessageEmbed({
+            author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
             color: "RED",
             description: `⚠ Are you absolutely sure you wish to delete your data? **This action is irreversible!**\nTo confirm your data deletion, react with 🚮 in the next 30 seconds.`
         });
         msg.channel.send(areYouSureDeleteUserEmbed)
             .then(deleteConfirmMsg => {
-            deleteConfirmMsg.react('🚮');
+            deleteConfirmMsg.react('🚮').catch(err => console.error(err));
             const deleteDataReactionCollector = deleteConfirmMsg.createReactionCollector((r, u) => u.id == msg.author.id && r.emoji.name == '🚮', { time: 30 * 1000, max: 1 });
             deleteDataReactionCollector.on("end", (collected, reason) => {
                 if (reason != 'time' && collected.size == 1 && collected.first().emoji.name == '🚮') {
                     delete userData[msg.author.id];
                     areYouSureDeleteUserEmbed.description = "🚮 Your user specific data has been removed. Any remaining traces will be deleted with the next save interval (every 5 minutes).";
-                    deleteConfirmMsg.edit(areYouSureDeleteUserEmbed);
+                    deleteConfirmMsg.edit(areYouSureDeleteUserEmbed).catch(err => console.error(err));
                 }
                 else {
                     areYouSureDeleteUserEmbed.description = "⌚ Deletion request has timed out.";
-                    deleteConfirmMsg.edit(areYouSureDeleteUserEmbed);
+                    deleteConfirmMsg.edit(areYouSureDeleteUserEmbed).catch(err => console.error(err));
                 }
             });
         }).catch(err => console.log(`User ${msg.author.tag} requested data deletion, but it failed due to not being able to send a message. Please follow up with this user. Details: ${err}`));
         return;
     }
     // actual stonks handling ("default case")
-    let tokens = msg.content.split(" ");
+    const tokens = msg.content.split(" ");
     let interval;
     if (tokens.length > 1)
         interval = stringOrArrayToInterval(tokens.slice(1));
-    const stonks_value = Number(tokens[0].substring(1));
-    if (isNaN(stonks_value))
+    const stonksValue = Number(tokens[0].substring(1));
+    if (isNaN(stonksValue))
         return;
     if (!userData.hasOwnProperty(msg.author.id) || !userData[msg.author.id].timezone) {
         const registerTimezoneFirstEmbed = new Discord.MessageEmbed({
-            author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+            author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
             color: 16312092,
             description: `⚠ Please register your timezone with me by using \`${msgPrefix + timezoneInvoker}timezoneCode\` first.`
         });
-        sendDismissableMessage(msg.channel, registerTimezoneFirstEmbed, msg.author.id);
+        sendDismissibleMessage(msg.channel, registerTimezoneFirstEmbed, msg.author.id);
         return;
     }
-    let localTime = moment().tz(userData[msg.author.id].timezone);
+    const localTime = moment().tz(userData[msg.author.id].timezone);
     if (localTime.weekday() == 7) {
         const sundayEmbed = new Discord.MessageEmbed({
-            author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+            author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
             color: 16312092,
             description: `⚠ It is Sunday on your island.`
         });
-        sendDismissableMessage(msg.channel, sundayEmbed, msg.author.id);
+        sendDismissibleMessage(msg.channel, sundayEmbed, msg.author.id);
         return;
     }
-    if (stonks_value < 0 || stonks_value > 1000 || stonks_value % 1 != 0) {
+    if (stonksValue < 0 || stonksValue > 1000 || stonksValue % 1 != 0) {
         const invalidStalkPriceEmbed = new Discord.MessageEmbed({
-            author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+            author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
             color: 16312092,
             description: `⚠ Invalid stalk price specified.`
         });
-        sendDismissableMessage(msg.channel, invalidStalkPriceEmbed, msg.author.id);
+        sendDismissibleMessage(msg.channel, invalidStalkPriceEmbed, msg.author.id);
         return;
     }
     if (interval !== undefined) {
         if (interval < 0) { // invalid interval
             const invalidIntervalEmbed = new Discord.MessageEmbed({
-                author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                 color: 16312092,
                 description: `⚠ Invalid interval specified.`
             });
-            sendDismissableMessage(msg.channel, invalidIntervalEmbed, msg.author.id);
+            sendDismissibleMessage(msg.channel, invalidIntervalEmbed, msg.author.id);
             return;
         }
-        let now_tz = moment().tz(userData[msg.author.id].timezone);
-        let maximumAcceptableInterval = now_tz.day() == 0 ? 0 : now_tz.day() * 2 - Number(now_tz.hour() < 12);
+        const nowTz = moment().tz(userData[msg.author.id].timezone);
+        const maximumAcceptableInterval = nowTz.day() == 0 ? 0 : nowTz.day() * 2 - Number(nowTz.hour() < 12);
         if (interval > maximumAcceptableInterval) {
             const intervalInFutureEmbed = new Discord.MessageEmbed({
-                author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                 color: 16312092,
                 description: `⚠ The specified interval is in the future!`
             });
-            sendDismissableMessage(msg.channel, intervalInFutureEmbed, msg.author.id);
+            sendDismissibleMessage(msg.channel, intervalInFutureEmbed, msg.author.id);
             return;
         }
-        userData[msg.author.id].weekPrices[interval] = stonks_value;
+        userData[msg.author.id].weekPrices[interval] = stonksValue;
         msg.channel.send({ embed: {
-                author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                 color: 4289797,
-                description: `💰 updated listing: **${stonks_value} Bells** for ${weekIntervalToString(interval)}`
-            } });
+                description: `💰 updated listing: **${stonksValue} Bells** for ${weekIntervalToString(interval)}`
+            } }).catch(err => console.error(err));
         return;
     }
-    let doRoleMention = goodPricePingRole && priceIsMentionWorthy(stonks_value); // check the new price against old prices first
+    const doRoleMention = goodPricePingRole && priceIsMentionWorthy(stonksValue); // check the new price against old prices first
     if (priceData.hasOwnProperty(msg.author.id)) {
-        priceData[msg.author.id].updatePrice(stonks_value);
+        priceData[msg.author.id].updatePrice(stonksValue);
         msg.channel.send(doRoleMention ? `${goodPricePingRole}` : "", { embed: {
-                author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                 color: 4289797,
-                description: `💰 updated listing: **${stonks_value} Bells**, expires in ${priceData[msg.author.id].timeLeftString()}`
-            } });
+                description: `💰 updated listing: **${stonksValue} Bells**, expires in ${priceData[msg.author.id].timeLeftString()}`
+            } }).catch(err => console.error(err));
         sendBestStonksToUpdateChannel();
         return;
     }
     else {
-        priceData[msg.author.id] = new priceEntry(msg.author.id, stonks_value);
+        priceData[msg.author.id] = new PriceEntry(msg.author.id, stonksValue);
         msg.channel.send(doRoleMention ? `${goodPricePingRole}` : "", { embed: {
-                author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
+                author: { name: msg.member.displayName, iconURL: msg.author.avatarURL() },
                 color: 4289797,
-                description: `💰 new listing: **${stonks_value} Bells**, expires in ${priceData[msg.author.id].timeLeftString()}`
-            } });
+                description: `💰 new listing: **${stonksValue} Bells**, expires in ${priceData[msg.author.id].timeLeftString()}`
+            } }).catch(err => console.error(err));
         sendBestStonksToUpdateChannel();
         return;
     }
@@ -1541,7 +1543,7 @@ client.on('ready', () => {
             updateChannel = channel;
             channel.messages.fetch({ limit: 10 })
                 .then(messages => {
-                let lastMessage = messages.filter(m => m.author.id == client.user.id).sort((a, b) => b.createdTimestamp - a.createdTimestamp).first();
+                const lastMessage = messages.filter(m => m.author.id == client.user.id).sort((a, b) => b.createdTimestamp - a.createdTimestamp).first();
                 if (!lastMessage) {
                     updateChannel.send(bestStonksEmbed()).then(message => {
                         if (message.editable) {
@@ -1579,5 +1581,5 @@ client.on('ready', () => {
         console.log("No channel was specified as an environment variable. No updates will be sent.");
     }
 });
-client.login(getEnv('DISCORD_STONKS_TOKEN'));
+client.login(getEnv('DISCORD_STONKS_TOKEN')).catch(err => console.error(err));
 //# sourceMappingURL=run.js.map
