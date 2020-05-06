@@ -1,5 +1,5 @@
 import * as Discord from "discord.js";
-import { TextChannel } from "discord.js";
+import {TextChannel} from "discord.js";
 import * as moment from "moment-timezone";
 import * as fs from "fs";
 
@@ -94,21 +94,19 @@ function saveData(): void {
 let saveInterval = setInterval(saveData, 60000);
 
 // get the best stonks
-let best_stonks = [null, null, null];
-function updateBestStonks() {
-	best_stonks = [null, null, null];
-	for (var key in priceData) {
-		if (priceData.hasOwnProperty(key)) {
-			let checkedPrice = priceData[key].price;
-			if (!checkedPrice) continue; // if the checked price is false, then it's been deleted! ==> skip this entry
-			let currentEntry = priceData[key];
-			for (let i = 0; i < best_stonks.length; i++) {
-				if (currentEntry == null) break; // if it's null it's been swapped, break inner for loop
-				if (best_stonks[i] == null || checkedPrice > best_stonks[i].price) { // swap the entries. This should work right..?
-					let temp = best_stonks[i];
-					best_stonks[i] = currentEntry;
-					currentEntry = temp;
-				}
+let bestStonks = [null, null, null];
+function updateBestStonks(): void {
+	bestStonks = [null, null, null];
+	for (const key of Object.keys(priceData)) {
+		const checkedPrice = priceData[key].price;
+		if (!checkedPrice) continue; // if the checked price is false, then it's been deleted! ==> skip this entry
+		let currentEntry = priceData[key];
+		for (let i = 0; i < bestStonks.length; i++) {
+			if (currentEntry == null) break; // if it's null it's been swapped, break inner for loop
+			if (bestStonks[i] == null || checkedPrice > bestStonks[i].price) { // swap the entries. This should work right..?
+				const temp = bestStonks[i];
+				bestStonks[i] = currentEntry;
+				currentEntry = temp;
 			}
 		}
 	}
@@ -117,8 +115,8 @@ function updateBestStonks() {
 
 function priceIsMentionWorthy(new_value) {
 	if (new_value < MINIMUM_PRICE_FOR_PING) return false;
-	if (!best_stonks || !best_stonks[0]) return true;// If no best stonk exists, it's mentionworthy
-	if (new_value <= best_stonks[0].price) return false; // Best stonk exists and is equal or better
+	if (!bestStonks || !bestStonks[0]) return true;// If no best stonk exists, it's mentionworthy
+	if (new_value <= bestStonks[0].price) return false; // Best stonk exists and is equal or better
 	return true; // Best known stonk is worse - mentionworthy!
 }
 
@@ -622,11 +620,11 @@ let updateMessage;
 function bestStonksEmbed() {
 	updateBestStonks();
 	const embedFields = [];
-	for (let i = 0; i < best_stonks.length; i++) {
-		if (best_stonks[i] != null) {
+	for (let i = 0; i < bestStonks.length; i++) {
+		if (bestStonks[i] != null) {
 			embedFields.push({
-				value: `**💰 ${best_stonks[i].price} Bells** for another ${best_stonks[i].timeLeftString()} | <@${best_stonks[i].user.id}>`,
-				name: `${moment().tz(best_stonks[i].user.timezone).format("h:mm a")} | ${best_stonks[i].user.friendcode ? best_stonks[i].user.friendcode : "No friendcode specified"}`
+				value: `**💰 ${bestStonks[i].price} Bells** for another ${bestStonks[i].timeLeftString()} | <@${bestStonks[i].user.id}>`,
+				name: `${moment().tz(bestStonks[i].user.timezone).format("h:mm a")} | ${bestStonks[i].user.friendcode ? bestStonks[i].user.friendcode : "No friendcode specified"}`
 			});
 		}
 	}
