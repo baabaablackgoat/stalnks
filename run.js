@@ -193,7 +193,7 @@ class userEntry { // there doesn't seem to be anything non-experimental for priv
 		return this._weekPrices;
 	}
 	get filledWeekPrices() {
-		let lastFilledIndex = this.weekPrices.map((k) => Boolean(k)).lastIndexOf(true) + 1; 
+		let lastFilledIndex = this.weekPrices.map((k) => Boolean(k)).lastIndexOf(true) + 1;
 		return this.weekPrices.slice(0, lastFilledIndex);
 	}
 
@@ -258,7 +258,7 @@ class priceEntry {
 	updatePrice(price) {
 		if (isNaN(price) || price < 0 || price > 1000 || price % 1 != 0) throw new RangeError("Supplied price "+price+" is invalid");
 		let now_tz = moment().tz(userData[this.user.id].timezone); // the current time, adjusted with the timezone of the user.
-		if (now_tz.weekday() == 7) throw new RangeError("Cannot create offers on a sunday - turnips arent sold on sundays.");
+		if (now_tz.weekday() == 7) throw new RangeError("Cannot create offers on a sunday - turnips aren't sold on sundays.");
 		this._price = price;
 		this.user.weekPrices[this.getPriceInterval()] = price;
 		this.expiresAt = now_tz.hour() < 12 ? now_tz.clone().hour(12).minute(0).second(0).millisecond(0) : now_tz.clone().hour(24).minute(0).second(0).millisecond(0);
@@ -329,7 +329,7 @@ class queueEntry {
 		// Make sure the user is DM-able, and send confirmation message.
 		let addedToQueueEmbed = new Discord.MessageEmbed({
 			color: 16711907,
-			description: `You have been added to the queue for a maximum of ${type == 'single' ? '1' : type == 'some' ? "3" : "unlimited"} visit(s).\nYour estimated wait time is **⏳ minutes**.\nIf you wish to leave the queue, click 👋.` 
+			description: `You have been added to the queue for a maximum of ${type == 'single' ? '1' : type == 'some' ? "3" : "unlimited"} visit(s).\nYour estimated wait time is **⏳ minutes**.\nIf you wish to leave the queue, click 👋.`
 		});
 		userObject.send(addedToQueueEmbed)
 			.then(confirmationMsg => {
@@ -375,7 +375,7 @@ class queueEntry {
 			}
 			// Check if the user is on his last turn;			
 			if (this._rawQueues[this.processingGroup.type][searchingIndex].grantedVisits >= this._rawQueues[this.processingGroup.type][searchingIndex].maxVisits) continue;
-			
+
 			if (!this._rawQueues[this.processingGroup.type][searchingIndex].fulfilled) return searchingIndex;
 		}
 		throw new Error("Something went wrong while attempting to find the next user in the current processing group.");
@@ -383,14 +383,14 @@ class queueEntry {
 
 	get nextUserEntry() { // Note: this does NOT advance the queue or create new processing groups, this.update() does that! This is used to message the upcoming user instead
 		if (this.processingGroup.type && this.nextUserIndexFromProcessingGroup > -1) return this._rawQueues[this.processingGroup.type][this.nextUserIndexFromProcessingGroup];
-		
+
 		let single_active = this.currentUserProcessed && this.currentUserProcessed.type == 'single';
 		if (this.remainingUsersInSubqueue('single') >= (single_active ? 2 : 1)) return this._rawQueues.single[this.queuePositions.single + (single_active ? 1 : 0)];
 
 		if (this.processingGroup.type == 'some' && this.processingGroup.firstIndex + queueMultiGroupSize >= this._rawQueues.some.length) return this._rawQueues.some[this.processingGroup.firstIndex + queueMultiGroupSize];
-		
+
 		if (this.remainingUsersInSubqueue('some') >= 1) return this._rawQueues.some[this.queuePositions.some]; //usually only if single users were called before
-		
+
 		if (this.processingGroup.type == 'multi' && this.processingGroup.firstIndex + queueMultiGroupSize >= this._rawQueues.multi.length) return this._rawQueues.multi[this.processingGroup.firstIndex + queueMultiGroupSize];
 		if (this.remainingUsersInSubqueue('multi') >= 1) return this._rawQueues.multi[this.queuePositions.multi];
 
@@ -425,7 +425,7 @@ class queueEntry {
 			return;
 		}
 		if (!this.dodoCode) return;
-		
+
 		if (this.processingGroup.type) { // currently in a subgroup
 			if (this.nextUserIndexFromProcessingGroup > -1) { // Was an unfulfilled user in the current processing group found?
 				this.currentUserProcessed = this._rawQueues[this.processingGroup.type][this.nextUserIndexFromProcessingGroup];
@@ -566,7 +566,7 @@ class queueUserEntry {
 			userAmtInProcessingGroup = this.queue.processingGroup.firstIndex + queueMultiGroupSize > this.queue._rawQueues[this.queue.processingGroup.type].length ? this.queue._rawQueues[this.queue.processingGroup.type].length - this.queue.processingGroup.firstIndex : 3;
 			worstEstimate += worstRepeatAssumptions[this.queue.processingGroup.type] * queueToSellMinutes * userAmtInProcessingGroup;
 		}
-		
+
 		// Depending on this users type and position, calculate all remaining users inbetween, also subtract the users in the current processing group!
 		worstEstimate += (this.queue.remainingUsersInSubqueue('single') - (this.type == 'single' ? this.queue._rawQueues.single.length - this.subQueuePosition : 0)) * queueToSellMinutes;
 		if (this.type == 'single') return `${Math.floor(worstEstimate * avgEstimateMultiplier)} - ${worstEstimate}`;
@@ -624,12 +624,12 @@ function sendBestStonksToUpdateChannel() {
 	if (updateMessage) {
 		updateMessage.edit(bestStonksEmbed())
 			.catch(err => {
-				console.log("Error occured while attempting to update the previously sent message: "+err);
+				console.log("Error occurred while attempting to update the previously sent message: "+err);
 			});
 	} else {
 		updateChannel.send(bestStonksEmbed())
 			.catch(err => {
-				console.log("Error occured while attempting to send an update message: "+err);
+				console.log("Error occurred while attempting to send an update message: "+err);
 			});
 	}
 }
@@ -639,7 +639,7 @@ function stringOrArrayToInterval(input = undefined) { // return -1 on invalid in
 	if (!input) return -1;
 	if (typeof input != 'string') input = input.join(" ");
 	input = input.toLowerCase();
-	
+
 	// Check if just a number was specified (legacy system)
 	let numberCheck = parseInt(input);
 	if (!isNaN(numberCheck)) { // just a number was supplied
@@ -1135,7 +1135,7 @@ client.on('message', msg => {
 		msg.author.send({embed: {
 			author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 			color: 16711907,
-			description: `ℹ Please send your Dodo-Code™ as a direct DM to me.\nIf you wish to add more information, simply put it in *the same message* seperated from the Dodo-Code™ with a single space. Keep your additional information PG, please.\nExample: \`A1BC2 Nook's Cranny is in the top left corner!\`\n **This request will expire in 3 minutes.**`
+			description: `ℹ Please send your Dodo-Code™ as a direct DM to me.\nIf you wish to add more information, simply put it in *the same message* separated from the Dodo-Code™ with a single space. Keep your additional information PG, please.\nExample: \`A1BC2 Nook's Cranny is in the top left corner!\`\n **This request will expire in 3 minutes.**`
 		}})
 			.then(dmMsg => {
 				// Create a message collector in the DM Channel of the creating user to collect the dodo code and potential additional information.
@@ -1346,7 +1346,7 @@ client.on('message', msg => {
 		const optedOutEmbed = new Discord.MessageEmbed({
 			author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 			color: 4289797,
-			description: `👋 You have opted out of pattern end-of-week DMs. If you wish to recieve pattern question DMs again, use ${msgPrefix + optInPatternDMInvoker}.`
+			description: `👋 You have opted out of pattern end-of-week DMs. If you wish to receive pattern question DMs again, use ${msgPrefix + optInPatternDMInvoker}.`
 		});
 		sendDismissableMessage(msg.channel, optedOutEmbed, msg.author.id);
 		return;
@@ -1376,7 +1376,7 @@ client.on('message', msg => {
 		const optedOutEmbed = new Discord.MessageEmbed({
 			author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 			color: 4289797,
-			description: `📝 You have opted in to recieve pattern end-of-week DMs. If you wish to stop getting these messages, use ${msgPrefix + optOutPatternDMInvoker}.`
+			description: `📝 You have opted in to receive pattern end-of-week DMs. If you wish to stop getting these messages, use ${msgPrefix + optOutPatternDMInvoker}.`
 		});
 		sendDismissableMessage(msg.channel, optedOutEmbed, msg.author.id);
 		return;
@@ -1553,12 +1553,12 @@ client.on('ready', () => {
 					})
 					.catch(err => {
 						updateChannel = false;
-						console.log("Error occured while attempting to fetch messages from channel: "+err+ "\nAssuming channel is inaccessible. No updates will be sent.");
+						console.log("Error occurred while attempting to fetch messages from channel: "+err+ "\nAssuming channel is inaccessible. No updates will be sent.");
 					});
 			})
 			.catch(err => {
 				updateChannel = false;
-				console.error("Error occured while attempting to fetch update channel: "+err+"\nNo updates will be sent.");
+				console.error("Error occurred while attempting to fetch update channel: "+err+"\nNo updates will be sent.");
 			});
 	} else {
 		console.log("No channel was specified as an environment variable. No updates will be sent.");
