@@ -28,7 +28,7 @@ fs.readFile(userDataPath, 'utf8', (err, data) => {
 		}
 	} else {
 		try {
-			rawData = JSON.parse(data);
+			const rawData = JSON.parse(data);
 			for (let key in rawData) {
 				try {
 					userData[key] = userEntry.fromRaw(key, rawData[key]);
@@ -55,7 +55,7 @@ fs.readFile(userDataPath, 'utf8', (err, data) => {
 			}
 		} else {
 			try {
-				rawData = JSON.parse(data);
+				const rawData = JSON.parse(data);
 				for (let key in rawData) {
 					try {
 						priceData[key] = priceEntry.fromRaw(key, rawData[key]);
@@ -147,6 +147,14 @@ function hasElevatedPermissions(member) {
 
 
 class userEntry { // there doesn't seem to be anything non-experimental for private fields
+	private id;
+	private timezone;
+	private friendcode;
+	private weekUpdated;
+	private lastWeekPattern;
+	private _weekPrices;
+	private optInPatternDM;
+
 	constructor(id, timezone, friendcode, weekUpdated, lastWeekPattern, _weekPrices, optInPatternDM) {
 		this.id = id;
 		this.timezone = timezone;
@@ -219,6 +227,11 @@ class userEntry { // there doesn't seem to be anything non-experimental for priv
 
 
 class priceEntry {
+	private id;
+	private user;
+	private expiresAt;
+	private _price;
+
 	constructor(userId, price, expiresAt = null) {
 		// sanity checks. these *can* be made redundant, but you can also just handle errors
 		if (!(userId in userData)) throw new ReferenceError("userId "+userId+" not registered in userData.");
@@ -289,6 +302,18 @@ const queueToSellMinutes = parseInt(getEnv('DISCORD_STONKS_QUEUETOSELLMINUTES', 
 const queueMultiGroupSize = parseInt(getEnv('DISCORD_STONKS_QUEUEMULTIGROUPSIZE', '3'));
 
 class queueEntry {
+	private id;
+	private dodoCode;
+	private addlInformation;
+	private currentUserProcessed;
+	private acceptingEntries;
+	private _rawQueues;
+	private queuePositions;
+	private processingGroup;
+	private joinReactionCollector;
+	private previousUserProcessed;
+	private minimumAcceptanceExpiresAt;
+
 	constructor(userId) {
 		this.id = userId; // to allow for self-deletion
 		this.dodoCode = null;
@@ -462,6 +487,14 @@ class queueEntry {
 }
 
 class queueUserEntry {
+	private user;
+	private queue;
+	private maxVisits;
+	private type;
+	private fulfilled;
+	private grantedVisits;
+	private currentUserProcessed;
+
 	constructor(userObject, queue, type) {
 		this.user = userObject;
 		this.queue = queue;
@@ -587,7 +620,7 @@ let updateMessage;
 
 function bestStonksEmbed() {
 	updateBestStonks();
-	embedFields = [];
+	const embedFields = [];
 	for (let i = 0; i < best_stonks.length; i++) {
 		if (best_stonks[i] != null) {
 			embedFields.push({
@@ -849,7 +882,7 @@ client.on('message', msg => {
 
 	// set/update timezone
 	if (msg.content.startsWith(msgPrefix + timezoneInvoker)) {
-		timezone = msg.content.substring(msgPrefix.length + timezoneInvoker.length).trim().replace(" ", "_");
+		let timezone = msg.content.substring(msgPrefix.length + timezoneInvoker.length).trim().replace(" ", "_");
 		if (timezone == 'list') {
 			const timezoneListEmbed = new Discord.MessageEmbed({
 				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
@@ -901,7 +934,7 @@ client.on('message', msg => {
 
 	// friendcode handling
 	if (msg.content.startsWith(msgPrefix + fcInvoker)) {
-		fc = msg.content.substring(msgPrefix.length + fcInvoker.length);
+		const fc = msg.content.substring(msgPrefix.length + fcInvoker.length);
 		const fcRegex = /^SW-\d{4}-\d{4}-\d{4}$/;
 		if (['remove', 'delete', 'no'].includes(fc)) {
 			if (!userData.hasOwnProperty(msg.author.id) || !userData[msg.author.id].friendcode) {
@@ -1433,7 +1466,7 @@ client.on('message', msg => {
 	let tokens = msg.content.split(" ");
 	let interval;
 	if (tokens.length > 1) interval = stringOrArrayToInterval(tokens.slice(1));
-	stonks_value = Number(tokens[0].substring(1));
+	const stonks_value = Number(tokens[0].substring(1));
 
 	if (isNaN(stonks_value)) return;
 	if (!userData.hasOwnProperty(msg.author.id) || !userData[msg.author.id].timezone) {
@@ -1523,7 +1556,7 @@ client.on('ready', () => {
 	console.log(`stalnks. logged in as ${client.user.tag}`);
 
 	// get stuff about the channel and the possibly editable message
-	updateChannelID = getEnv('DISCORD_STONKS_UPDATECHANNELID', false);
+	const updateChannelID = getEnv('DISCORD_STONKS_UPDATECHANNELID', false);
 
 	if (updateChannelID) {
 		client.channels.fetch(updateChannelID)
