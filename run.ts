@@ -1,6 +1,7 @@
-const fs = require('fs');
-const moment = require('moment-timezone');
-const Discord = require('discord.js');
+import * as Discord from "discord.js";
+import * as moment from "moment-timezone";
+import * as fs from "fs";
+
 const client = new Discord.Client();
 
 // ensure data exists
