@@ -12,7 +12,10 @@ if (!fs.existsSync('./data')){
 
 // timezone & friend code data
 const userDataPath = './data/userData.json';
-let userData = {}; // this shall store the timezones of our users
+interface UserTimezones {
+	[key: string]: UserEntry;
+}
+let userData: UserTimezones = {}; // this shall store the timezones of our users
 const priceDataPath = './data/priceData.json';
 let priceData = {}; // this will be some form of an ordered list
 let queueData = {}; // this object handles queues, and doesn't need to be saved cause queues will break on restarts anyways.
@@ -32,7 +35,7 @@ fs.readFile(userDataPath, 'utf8', (err, data) => {
 			const rawData = JSON.parse(data);
 			for (let key in rawData) {
 				try {
-					userData[key] = userEntry.fromRaw(key, rawData[key]);
+					userData[key] = UserEntry.fromRaw(key, rawData[key]);
 				} catch (entryErr) {
 					console.log("Non-fatal error raised while reading userData from JSON: "+entryErr);
 				}
@@ -145,26 +148,27 @@ function hasElevatedPermissions(member) {
 }
 
 
-class userEntry { // there doesn't seem to be anything non-experimental for private fields
-	private id;
-	private timezone;
-	private friendcode;
-	private weekUpdated;
-	private lastWeekPattern;
-	private _weekPrices;
-	private optInPatternDM;
+class UserEntry {
+	readonly id: string;
+	timezone: string | null;
+	friendcode: string | null;
+	weekUpdated: number | null;
+	lastWeekPattern: number | null;
+	#_weekPrices: Array<string | number> | null;
+	optInPatternDM: boolean;
 
-	constructor(id, timezone, friendcode, weekUpdated, lastWeekPattern, _weekPrices, optInPatternDM) {
+	constructor(id: string, timezone: string | null, friendcode: string | null, weekUpdated: number | null, lastWeekPattern: number | null, _weekPrices: Array<string | number> | null, optInPatternDM: boolean) {
 		this.id = id;
 		this.timezone = timezone;
 		this.friendcode = friendcode;
 		this.weekUpdated = weekUpdated;
 		this.lastWeekPattern = lastWeekPattern; // Fluctuating: 0, Large Spike: 1, Decreasing: 2, Small Spike: 3, I don't know: any
-		this._weekPrices = _weekPrices;
+		this.#_weekPrices = _weekPrices;
 		this.optInPatternDM = optInPatternDM;
 	}
-	get weekPrices() {
-		let currWeek = moment().tz(this.timezone).week();
+
+	get weekPrices(): Array<string | number> | null {
+		const currWeek = moment().tz(this.timezone).week();
 		if (this.weekUpdated != currWeek) {
 			console.log(`Cleared week price data for ${this.id}.`);
 			this.lastWeekPattern = undefined;
@@ -177,42 +181,53 @@ class userEntry { // there doesn't seem to be anything non-experimental for priv
 							fluctuating: "📊",
 							decreasing: "📉",
 						};
-						const patternNumbers = {fluctuating: 0, large_spike: 1, decreasing: 2, small_spike: 3};
+						const patternNumbers = {
+							fluctuating: 0,
+							large_spike: 1,
+							decreasing: 2,
+							small_spike: 3
+						};
 						const askForLastPatternEmbed = new Discord.MessageEmbed({
 							description: `It seems like you've entered turnip prices last week that have now run their course!\nDo you know which pattern your turnip prices were following **last week?**\nPlease use the reactions below to enter your pattern. If you don't know your pattern, you can ignore this message.\n\n${patternEmoji.large_spike} Large spike \n${patternEmoji.small_spike} Small spike \n${patternEmoji.fluctuating} Fluctuating \n${patternEmoji.decreasing} Decreasing`,
 							color: "LUMINOUS_VIVID_PINK",
 						});
 						user.send(askForLastPatternEmbed)
 							.then(sentMessage => {
-								for (let key in patternEmoji) { sentMessage.react(patternEmoji[key]); }
-								const patternCollector = sentMessage.createReactionCollector((r,u) => !u.bot && Object.values(patternEmoji).includes(r.emoji.name), {time: 5*60*1000, max: 1});
+								for (const key in patternEmoji) {
+									sentMessage.react(patternEmoji[key]);
+								}
+								const patternCollector = sentMessage.createReactionCollector((r, u) => !u.bot && Object.values(patternEmoji).includes(r.emoji.name), {
+									time: 5 * 60 * 1000,
+									max: 1
+								});
 								patternCollector.on("end", (collected, reason) => {
 									if (reason == 'time' || collected.size < 1) return;
 									this.lastWeekPattern = patternNumbers[Object.keys(patternEmoji).find(key => patternEmoji[key] == collected.first().emoji.name)];
 								});
 							})
-							.catch(err => console.log("Failed to message user to ask about last week's pattern: "+err));
+							.catch(err => console.log("Failed to message user to ask about last week's pattern: " + err));
 					})
-					.catch(err => console.log("Failed to lookup user to ask about last week's pattern: "+err));
+					.catch(err => console.log("Failed to lookup user to ask about last week's pattern: " + err));
 			}
-			this._weekPrices = Array(13).fill('');
+			this.#_weekPrices = Array(13).fill('');
 		}
 		this.weekUpdated = currWeek;
-		return this._weekPrices;
+		return this.#_weekPrices;
 	}
+
 	get filledWeekPrices() {
-		let lastFilledIndex = this.weekPrices.map((k) => Boolean(k)).lastIndexOf(true) + 1;
+		const lastFilledIndex = this.weekPrices.map((k) => Boolean(k)).lastIndexOf(true) + 1;
 		return this.weekPrices.slice(0, lastFilledIndex);
 	}
 
 	get turnipProphetURL() {
-		let pricesString = this.filledWeekPrices.join('.');
+		const pricesString = this.filledWeekPrices.join('.');
 		if (pricesString.length > 0) return `https://turnipprophet.io?prices=${pricesString}${this.lastWeekPattern !== undefined ? "&pattern=" + this.lastWeekPattern : ""}`;
 		else return `https://turnipprophet.io${this.lastWeekPattern !== undefined ? "?pattern=" + this.lastWeekPattern : ""}`;
 	}
 
 	static fromRaw(id, obj) {
-		return new userEntry(
+		return new UserEntry(
 			id,
 			obj.timezone,
 			obj.friendcode,
@@ -912,7 +927,7 @@ client.on('message', msg => {
 			}
 		}
 		if (userData.hasOwnProperty(msg.author.id)) userData[msg.author.id].timezone = timezone;
-		else userData[msg.author.id] = new userEntry(msg.author.id, timezone, null, null, null, null, true);
+		else userData[msg.author.id] = new UserEntry(msg.author.id, timezone, null, null, null, null, true);
 		if (inaccurateTimezones.includes(timezone)) {
 			const confirmDangerousTimezoneSetEmbed = new Discord.MessageEmbed({
 				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
@@ -973,7 +988,7 @@ client.on('message', msg => {
 			sendDismissableMessage(msg.channel, friendcodeAddedEmbed, msg.author.id);
 			return;
 		} else {
-			userData[msg.author.id] = new userEntry(msg.author.id, null, fc, null, null, null, true);
+			userData[msg.author.id] = new UserEntry(msg.author.id, null, fc, null, null, null, true);
 			const profileWithFriendcodeCreatedEmbed = new Discord.MessageEmbed({
 				author: {name: msg.member.displayName, icon_url: msg.author.avatarURL()},
 				color: 4289797,

@@ -1,9 +1,23 @@
 "use strict";
+var __classPrivateFieldSet = (this && this.__classPrivateFieldSet) || function (receiver, privateMap, value) {
+    if (!privateMap.has(receiver)) {
+        throw new TypeError("attempted to set private field on non-instance");
+    }
+    privateMap.set(receiver, value);
+    return value;
+};
+var __classPrivateFieldGet = (this && this.__classPrivateFieldGet) || function (receiver, privateMap) {
+    if (!privateMap.has(receiver)) {
+        throw new TypeError("attempted to get private field on non-instance");
+    }
+    return privateMap.get(receiver);
+};
+var __weekPrices;
 Object.defineProperty(exports, "__esModule", { value: true });
 const Discord = require("discord.js");
+const discord_js_1 = require("discord.js");
 const moment = require("moment-timezone");
 const fs = require("fs");
-const discord_js_1 = require("discord.js");
 const client = new Discord.Client();
 // ensure data exists
 if (!fs.existsSync('./data')) {
@@ -32,7 +46,7 @@ fs.readFile(userDataPath, 'utf8', (err, data) => {
             const rawData = JSON.parse(data);
             for (let key in rawData) {
                 try {
-                    userData[key] = userEntry.fromRaw(key, rawData[key]);
+                    userData[key] = UserEntry.fromRaw(key, rawData[key]);
                 }
                 catch (entryErr) {
                     console.log("Non-fatal error raised while reading userData from JSON: " + entryErr);
@@ -76,58 +90,56 @@ fs.readFile(userDataPath, 'utf8', (err, data) => {
         }
     });
 });
-function getEnv(var_name, otherwise = undefined) {
-    if (process.env[var_name]) {
-        return process.env[var_name];
+function getEnv(varName, otherwise = undefined) {
+    if (process.env[varName]) {
+        return process.env[varName];
     }
     else if (otherwise !== undefined) {
         return otherwise;
     }
     else {
-        throw `${var_name} not set in environment`;
+        throw new Error(`${varName} not set in environment`);
     }
 }
 // Save data in case of restarts or emergencies so that existing data won't be lost
 function saveData() {
     fs.writeFile(userDataPath, JSON.stringify(userData), err => {
         if (err)
-            console.log("Error while saving user data to disk:\n" + err);
+            console.log("Error while saving user data to disk:\n" + err.message);
     });
     fs.writeFile(priceDataPath, JSON.stringify(priceData), err => {
         if (err)
-            console.log("Error while saving price data to disk:\n" + err);
+            console.log("Error while saving price data to disk:\n" + err.message);
     });
 }
 let saveInterval = setInterval(saveData, 60000);
 // get the best stonks
-let best_stonks = [null, null, null];
+let bestStonks = [null, null, null];
 function updateBestStonks() {
-    best_stonks = [null, null, null];
-    for (var key in priceData) {
-        if (priceData.hasOwnProperty(key)) {
-            let checkedPrice = priceData[key].price;
-            if (!checkedPrice)
-                continue; // if the checked price is false, then it's been deleted! ==> skip this entry
-            let currentEntry = priceData[key];
-            for (let i = 0; i < best_stonks.length; i++) {
-                if (currentEntry == null)
-                    break; // if it's null it's been swapped, break inner for loop
-                if (best_stonks[i] == null || checkedPrice > best_stonks[i].price) { // swap the entries. This should work right..?
-                    let temp = best_stonks[i];
-                    best_stonks[i] = currentEntry;
-                    currentEntry = temp;
-                }
+    bestStonks = [null, null, null];
+    for (const key of Object.keys(priceData)) {
+        const checkedPrice = priceData[key].price;
+        if (!checkedPrice)
+            continue; // if the checked price is false, then it's been deleted! ==> skip this entry
+        let currentEntry = priceData[key];
+        for (let i = 0; i < bestStonks.length; i++) {
+            if (currentEntry == null)
+                break; // if it's null it's been swapped, break inner for loop
+            if (bestStonks[i] == null || checkedPrice > bestStonks[i].price) { // swap the entries. This should work right..?
+                const temp = bestStonks[i];
+                bestStonks[i] = currentEntry;
+                currentEntry = temp;
             }
         }
     }
     // console.debug(best_stonks);
 }
-function priceIsMentionWorthy(new_value) {
-    if (new_value < MINIMUM_PRICE_FOR_PING)
+function priceIsMentionWorthy(newValue) {
+    if (newValue < MINIMUM_PRICE_FOR_PING)
         return false;
-    if (!best_stonks || !best_stonks[0])
+    if (!bestStonks || !bestStonks[0])
         return true; // If no best stonk exists, it's mentionworthy
-    if (new_value <= best_stonks[0].price)
+    if (newValue <= bestStonks[0].price)
         return false; // Best stonk exists and is equal or better
     return true; // Best known stonk is worse - mentionworthy!
 }
@@ -154,18 +166,20 @@ function hasElevatedPermissions(member) {
     }
     return false;
 }
-class userEntry {
+class UserEntry {
     constructor(id, timezone, friendcode, weekUpdated, lastWeekPattern, _weekPrices, optInPatternDM) {
+        __weekPrices.set(this, void 0);
         this.id = id;
         this.timezone = timezone;
         this.friendcode = friendcode;
         this.weekUpdated = weekUpdated;
         this.lastWeekPattern = lastWeekPattern; // Fluctuating: 0, Large Spike: 1, Decreasing: 2, Small Spike: 3, I don't know: any
-        this._weekPrices = _weekPrices;
+        __classPrivateFieldSet(// Fluctuating: 0, Large Spike: 1, Decreasing: 2, Small Spike: 3, I don't know: any
+        this, __weekPrices, _weekPrices);
         this.optInPatternDM = optInPatternDM;
     }
     get weekPrices() {
-        let currWeek = moment().tz(this.timezone).week();
+        const currWeek = moment().tz(this.timezone).week();
         if (this.weekUpdated != currWeek) {
             console.log(`Cleared week price data for ${this.id}.`);
             this.lastWeekPattern = undefined;
@@ -178,17 +192,25 @@ class userEntry {
                         fluctuating: "📊",
                         decreasing: "📉",
                     };
-                    const patternNumbers = { fluctuating: 0, large_spike: 1, decreasing: 2, small_spike: 3 };
+                    const patternNumbers = {
+                        fluctuating: 0,
+                        large_spike: 1,
+                        decreasing: 2,
+                        small_spike: 3
+                    };
                     const askForLastPatternEmbed = new Discord.MessageEmbed({
                         description: `It seems like you've entered turnip prices last week that have now run their course!\nDo you know which pattern your turnip prices were following **last week?**\nPlease use the reactions below to enter your pattern. If you don't know your pattern, you can ignore this message.\n\n${patternEmoji.large_spike} Large spike \n${patternEmoji.small_spike} Small spike \n${patternEmoji.fluctuating} Fluctuating \n${patternEmoji.decreasing} Decreasing`,
                         color: "LUMINOUS_VIVID_PINK",
                     });
                     user.send(askForLastPatternEmbed)
                         .then(sentMessage => {
-                        for (let key in patternEmoji) {
+                        for (const key in patternEmoji) {
                             sentMessage.react(patternEmoji[key]);
                         }
-                        const patternCollector = sentMessage.createReactionCollector((r, u) => !u.bot && Object.values(patternEmoji).includes(r.emoji.name), { time: 5 * 60 * 1000, max: 1 });
+                        const patternCollector = sentMessage.createReactionCollector((r, u) => !u.bot && Object.values(patternEmoji).includes(r.emoji.name), {
+                            time: 5 * 60 * 1000,
+                            max: 1
+                        });
                         patternCollector.on("end", (collected, reason) => {
                             if (reason == 'time' || collected.size < 1)
                                 return;
@@ -199,26 +221,27 @@ class userEntry {
                 })
                     .catch(err => console.log("Failed to lookup user to ask about last week's pattern: " + err));
             }
-            this._weekPrices = Array(13).fill('');
+            __classPrivateFieldSet(this, __weekPrices, Array(13).fill(''));
         }
         this.weekUpdated = currWeek;
-        return this._weekPrices;
+        return __classPrivateFieldGet(this, __weekPrices);
     }
     get filledWeekPrices() {
-        let lastFilledIndex = this.weekPrices.map((k) => Boolean(k)).lastIndexOf(true) + 1;
+        const lastFilledIndex = this.weekPrices.map((k) => Boolean(k)).lastIndexOf(true) + 1;
         return this.weekPrices.slice(0, lastFilledIndex);
     }
     get turnipProphetURL() {
-        let pricesString = this.filledWeekPrices.join('.');
+        const pricesString = this.filledWeekPrices.join('.');
         if (pricesString.length > 0)
             return `https://turnipprophet.io?prices=${pricesString}${this.lastWeekPattern !== undefined ? "&pattern=" + this.lastWeekPattern : ""}`;
         else
             return `https://turnipprophet.io${this.lastWeekPattern !== undefined ? "?pattern=" + this.lastWeekPattern : ""}`;
     }
     static fromRaw(id, obj) {
-        return new userEntry(id, obj.timezone, obj.friendcode, obj.hasOwnProperty('weekUpdated') ? obj.weekUpdated : moment().tz(obj.timezone).week(), obj.hasOwnProperty('lastWeekPattern') ? obj.lastWeekPattern : undefined, obj.hasOwnProperty('_weekPrices') ? obj._weekPrices : Array(13).fill(''), obj.hasOwnProperty('optInPatternDM') ? obj.optInPatternDM : true);
+        return new UserEntry(id, obj.timezone, obj.friendcode, obj.hasOwnProperty('weekUpdated') ? obj.weekUpdated : moment().tz(obj.timezone).week(), obj.hasOwnProperty('lastWeekPattern') ? obj.lastWeekPattern : undefined, obj.hasOwnProperty('_weekPrices') ? obj._weekPrices : Array(13).fill(''), obj.hasOwnProperty('optInPatternDM') ? obj.optInPatternDM : true);
     }
 }
+__weekPrices = new WeakMap();
 class priceEntry {
     constructor(userId, price, expiresAt = null) {
         // sanity checks. these *can* be made redundant, but you can also just handle errors
@@ -577,11 +600,11 @@ let updateMessage;
 function bestStonksEmbed() {
     updateBestStonks();
     const embedFields = [];
-    for (let i = 0; i < best_stonks.length; i++) {
-        if (best_stonks[i] != null) {
+    for (let i = 0; i < bestStonks.length; i++) {
+        if (bestStonks[i] != null) {
             embedFields.push({
-                value: `**💰 ${best_stonks[i].price} Bells** for another ${best_stonks[i].timeLeftString()} | <@${best_stonks[i].user.id}>`,
-                name: `${moment().tz(best_stonks[i].user.timezone).format("h:mm a")} | ${best_stonks[i].user.friendcode ? best_stonks[i].user.friendcode : "No friendcode specified"}`
+                value: `**💰 ${bestStonks[i].price} Bells** for another ${bestStonks[i].timeLeftString()} | <@${bestStonks[i].user.id}>`,
+                name: `${moment().tz(bestStonks[i].user.timezone).format("h:mm a")} | ${bestStonks[i].user.friendcode ? bestStonks[i].user.friendcode : "No friendcode specified"}`
             });
         }
     }
@@ -591,7 +614,7 @@ function bestStonksEmbed() {
     output.description = "Keep in mind that Nook's Cranny is *usually* open between 8am - 10pm local time.";
     output.fields = embedFields.length > 0 ? embedFields : [{ name: "No prices registered so far.", value: "Register your prices with *value" }];
     output.footer = { text: 'Stalnks checked (your local time):' };
-    output.timestamp = moment().utc().milliseconds();
+    output.timestamp = moment().utc().valueOf();
     return output;
 }
 function userProfileEmbed(member) {
@@ -605,7 +628,7 @@ function userProfileEmbed(member) {
         { name: "Current stonks", value: priceData.hasOwnProperty(member.user.id) && priceData[member.user.id].price ? "**" + priceData[member.user.id].price + " Bells** for another " + priceData[member.user.id].timeLeftString() : "No active stonks", inline: true },
         { name: "Timezone", value: userData[member.user.id].timezone ? userData[member.user.id].timezone : "No timezone registered.", inline: true },
     ];
-    output.timestamp = moment().utc().milliseconds();
+    output.timestamp = moment().utc().valueOf();
     return output;
 }
 function sendBestStonksToUpdateChannel() {
@@ -872,7 +895,7 @@ client.on('message', msg => {
         if (userData.hasOwnProperty(msg.author.id))
             userData[msg.author.id].timezone = timezone;
         else
-            userData[msg.author.id] = new userEntry(msg.author.id, timezone, null, null, null, null, true);
+            userData[msg.author.id] = new UserEntry(msg.author.id, timezone, null, null, null, null, true);
         if (inaccurateTimezones.includes(timezone)) {
             const confirmDangerousTimezoneSetEmbed = new Discord.MessageEmbed({
                 author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
@@ -934,7 +957,7 @@ client.on('message', msg => {
             return;
         }
         else {
-            userData[msg.author.id] = new userEntry(msg.author.id, null, fc, null, null, null, true);
+            userData[msg.author.id] = new UserEntry(msg.author.id, null, fc, null, null, null, true);
             const profileWithFriendcodeCreatedEmbed = new Discord.MessageEmbed({
                 author: { name: msg.member.displayName, icon_url: msg.author.avatarURL() },
                 color: 4289797,
