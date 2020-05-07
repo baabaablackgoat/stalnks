@@ -2,9 +2,9 @@ import * as Discord from "discord.js";
 import {TextChannel} from "discord.js";
 import * as moment from "moment-timezone";
 import * as fs from "fs";
-import {AssertionError} from "assert";
-
-const client = new Discord.Client();
+import {QueueEntry} from "./classes/Queue";
+import getEnv from "./functions/getEnv";
+import client from "./functions/Client";
 
 // ensure data exists
 if (!fs.existsSync('./data')){
@@ -16,10 +16,29 @@ const userDataPath = './data/userData.json';
 interface UserTimezones {
 	[key: string]: UserEntry;
 }
+
 let userData: UserTimezones = {}; // this shall store the timezones of our users
 const priceDataPath = './data/priceData.json';
 let priceData = {}; // this will be some form of an ordered list
 const queueData = {}; // this object handles queues, and doesn't need to be saved cause queues will break on restarts anyways.
+
+const botOwnerID = getEnv('DISCORD_STONKS_BOTOWNERID');
+const dismissTimeout = parseInt(getEnv('DISCORD_STONKS_DISMISSMESSAGETIMEOUT', '5'));
+const MINIMUM_PRICE_FOR_PING = parseInt(getEnv("DISCORD_STONKS_MINIMUM_PRICE_FOR_PING", 400));
+const PING_ROLE_ID = getEnv("DISCORD_STONKS_PING_ROLE_ID", false);
+const updateChannelID = getEnv('DISCORD_STONKS_UPDATECHANNELID', false);
+
+function clearFinishedQueues(): void {
+	for (const key in queueData) {
+		if (queueData[key].flaggedForDeletion) {
+			delete queueData[key];
+			console.log("Deleted queue with key "+key);
+		}
+	}
+}
+
+const queueDeleteEntriesInterval = setInterval(clearFinishedQueues, 60*1000);
+
 
 fs.readFile(userDataPath, 'utf8', (err, data) => {
 	if (err) {
@@ -28,7 +47,7 @@ fs.readFile(userDataPath, 'utf8', (err, data) => {
 			fs.writeFileSync(userDataPath, "{}");
 			console.log("Created new user data file.");
 		} else {
-			console.log(`Something went wrong while reading user data:${err}`);
+			console.log(`Something went wrong while reading user data:${err.message}`);
 			process.exit(1);
 		}
 	} else {
@@ -55,7 +74,7 @@ fs.readFile(userDataPath, 'utf8', (err, data) => {
 				fs.writeFileSync(priceDataPath, "{}");
 				console.log("Created new price data file.");
 			} else {
-				console.log("Something went wrong while reading price data:\n"+priceErr);
+				console.log("Something went wrong while reading price data:\n"+priceErr.message);
 				process.exit(1);
 			}
 		} else {
@@ -75,16 +94,6 @@ fs.readFile(userDataPath, 'utf8', (err, data) => {
 		}
 	});
 });
-
-function getEnv(varName: string, otherwise: any = undefined): string {
-	if (process.env[varName]) {
-		return process.env[varName];
-	} else if (otherwise !== undefined) {
-		return otherwise;
-	} else {
-		throw new Error(`${varName} not set in environment`);
-	}
-}
 
 // Save data in case of restarts or emergencies so that existing data won't be lost
 function saveData(): void {
@@ -124,7 +133,6 @@ function priceIsMentionWorthy(newValue): boolean {
 	return true; // Best known stonk is worse - mentionworthy!
 }
 
-const dismissTimeout = parseInt(getEnv('DISCORD_STONKS_DISMISSMESSAGETIMEOUT', '5'));
 const dismissEmoji = "👌";
 function sendDismissibleMessage(channel: Discord.TextChannel | Discord.DMChannel | Discord.NewsChannel, data, invokingUserID): void {
 	channel.send(data)
@@ -140,7 +148,7 @@ function sendDismissibleMessage(channel: Discord.TextChannel | Discord.DMChannel
 
 const elevatedPermissionList = ["BAN_MEMBERS", "MANAGE_MESSAGES"];
 function hasElevatedPermissions(member): boolean {
-	if (getEnv('DISCORD_STONKS_BOTOWNERID') == member.id) return true;
+	if (botOwnerID == member.id) return true;
 	for (let i=0; i < elevatedPermissionList.length; i++){
 		if (member.hasPermission(elevatedPermissionList[i])) {
 			return true;
@@ -312,390 +320,8 @@ class PriceEntry {
 	}
 }
 
-const queueAcceptingMinutes = parseInt(getEnv('DISCORD_STONKS_QUEUEACCEPTINGMINUTES', '30'));
-const queueToSellMinutes = parseInt(getEnv('DISCORD_STONKS_QUEUETOSELLMINUTES', '7'));
-
-const queueMultiGroupSize = parseInt(getEnv('DISCORD_STONKS_QUEUEMULTIGROUPSIZE', '3'));
-const minimumTurnsBeforeFreeze = parseInt(getEnv('DISCORD_STONKS_QUEUEMINIMUMTURNSBEFOREFREEZE', '9'));
-const timeMultiplierIfHereBefore = parseFloat(getEnv('DISCORD_STONKS_TIMEMULTIPLIERIFHEREBEFORE', '1.5'));
-
-class QueueEntry {
-	private readonly id;
-	private readonly dodoCode;
-	private readonly addlInformation;
-	private currentUserProcessed;
-	private readonly acceptingEntries;
-	private readonly _rawQueues;
-	private readonly queuePositions;
-	private processingGroup;
-	private readonly joinReactionCollector;
-	private readonly previousUserProcessed;
-	private readonly minimumAcceptanceExpiresAt;
-	private entryCloseInterval;
-	private frozenProcessingGroup;
-
-	constructor(userId) {
-		this.id = userId; // to allow for self-deletion
-		this.dodoCode = null;
-		this.addlInformation = "No additional information specified.";
-		this.currentUserProcessed = null;
-		this.acceptingEntries = true;
-		this._rawQueues = {
-			single: [],
-			some: [], // <= 3
-			multi: [], // 4+
-		};
-		this.queuePositions = {single: -1, some: -1, multi: -1};
-		this.processingGroup = this.emptyProcessingGroup();
-		this.frozenProcessingGroup = null;
-		this.previousUserProcessed = null;
-		this.joinReactionCollector = null;
-		this.minimumAcceptanceExpiresAt = moment().add(queueAcceptingMinutes, 'minutes');
-		this.entryCloseInterval = setInterval(this.closeOnExpiryAndEmpty.bind(this), 60*1000)
-	}
-
-	/*
-	get userQueue() { // TODO/DEPRECATED might be deprecated / not needed
-		return this._rawQueues.single.concat(this._rawQueues.some).concat(this._rawQueues.multi);
-	}
-
-	userQueuePosition(userId) { // TODO - must be updated to reflect the new queue position using *ALL KNOWN STUFF*!
-		return this.userQueue.findIndex(q => q.id == userId);
-	}
-	*/
-
-	emptyProcessingGroup(): object {
-		return {
-			groupType: false,
-			firstIndex: -1,
-			currentIndex: -1,
-			processedThisTurn: 0
-		};
-	}
-
-	addUserToQueue(userObject, type): void {
-		if (!userObject) throw new Error("No user object specified: Userobject was "+userObject );
-		if (!['single', 'some', 'multi'].includes(type)) return; // Double check for valid type
-		// Prevent users from queueing up multiple times (also across queues! that would be dumb.)
-		// ISSUE This line can probably be replaced with a simple "position check" for -1, once implemented.
-		if (this._rawQueues.single.filter(e => e.user.id == userObject.id).length > 0 || this._rawQueues.some.filter(e => e.user.id == userObject.id).length > 0 || this._rawQueues.multi.filter(e => e.user.id == userObject.id).length > 0) return;
-		// Make sure the user is DM-able, and send confirmation message.
-		const addedToQueueEmbed = new Discord.MessageEmbed({
-			color: 16711907,
-			description: `You have been added to the queue for a maximum of ${type == 'single' ? '1' : type == 'some' ? "3" : "unlimited"} visit(s).\nYour estimated wait time is **⏳ minutes**.\n${type === 'multi' ? "\n⚠ **Because you signed up for potentially infinitely many visits, please keep in mind that your visiting streak might be interrupted for people with less visits.**\n\n":""}If you wish to leave the queue, click 👋.`
-		});
-		userObject.send(addedToQueueEmbed)
-			.then(confirmationMsg => {
-				// Add the user to the respective raw queue, and fire an update on the queue (in case it is empty to immediately allow the user to join)
-				this._rawQueues[type].push(new QueueUserEntry(userObject, this, type));
-				this.update();
-				// Get the estimated wait-time and put it in the message
-				addedToQueueEmbed.description = addedToQueueEmbed.description.replace("⏳", this._rawQueues[type].find(e => e.user.id == userObject.id).estimatedWaitTime());
-				confirmationMsg.edit(addedToQueueEmbed);
-				// Allow user to un-queue
-				confirmationMsg.react('👋');
-				const leaveQueueCollector = confirmationMsg.createReactionCollector((r,u) => !u.bot && r.emoji.name == '👋', {time: queueAcceptingMinutes*60*1000, max: 1});
-				leaveQueueCollector.on('collect', (leaveR, leavingUser) => {
-					if (!this) return; // just in case the queue was already deleted
-					const foundUserIndex = this._rawQueues[type].findIndex(e => e.user.id == leavingUser.id);
-					if (foundUserIndex >= 0 && foundUserIndex > this.getCurrentQueuePosition(type, true)) {
-						this._rawQueues[type].splice(foundUserIndex, 1);
-						leavingUser.send({embed: {
-							color: 16711907,
-							description: `You have been removed from the queue.`
-						}});
-					}
-				});
-
-			}).catch(err => console.log("Couldn't add "+ userObject.tag +" to queue - most likely has DMs disabled. Details: "+ err));
-	}
-
-	remainingUsersInSubqueue(type): number {
-		return this._rawQueues[type].length - this.getCurrentQueuePosition(type);
-	}
-
-	get nextUserIndexFromProcessingGroup(): number {
-		if (!this.processingGroup.type) throw new ReferenceError("No processing group exists, but the next user in the group was requested");
-		let loopedOver = false;
-		let searchingIndex = this.processingGroup.currentIndex;
-		for (let _ = 0; _ < 10; _++) { // limited to 10 to prevent accidental infinite loops like with while(true)
-			searchingIndex++;
-			if (this._rawQueues[this.processingGroup.type].length <= searchingIndex || this.processingGroup.firstIndex + (queueMultiGroupSize - 1) < searchingIndex) {
-				if (loopedOver) return -1; // This processing group is done - no further entries need to be processed
-				searchingIndex = this.processingGroup.firstIndex - 1; // loop back once to check the previous users in the group (-1 because of searchingIndex++)
-				loopedOver = true;
-				continue;
-			}
-			// Check if the user is on his last turn;			
-			if (this._rawQueues[this.processingGroup.type][searchingIndex].grantedVisits >= this._rawQueues[this.processingGroup.type][searchingIndex].maxVisits) continue;
-
-			if (!this._rawQueues[this.processingGroup.type][searchingIndex].fulfilled) return searchingIndex;
-		}
-		throw new Error("Something went wrong while attempting to find the next user in the current processing group.");
-	}
-
-	checkForGroupFreeze(nextTurn = false): boolean {
-		if (this.processingGroup.type !== 'multi') return false;
-		if (this.processingGroup.processedThisTurn + (nextTurn ? 1 : 0) < minimumTurnsBeforeFreeze) return false;
-		if (this.remainingUsersInSubqueue('single') === 0 && this.remainingUsersInSubqueue('some') === 0) return false;
-		return true;
-	}
-
-	attemptProcessingGroupFreeze(): boolean {
-		if (!this.checkForGroupFreeze()) return false;
-		if (this.frozenProcessingGroup !== null) throw new Error("Processing group was about to be frozen, but a frozen group already exists!");
-		this.frozenProcessingGroup = this.processingGroup;
-		this.processingGroup = this.emptyProcessingGroup();
-		return true;
-	}
-
-	attemptThawingFrozenGroup(): boolean {
-		if (!this.frozenProcessingGroup) return false;
-		this.processingGroup = this.frozenProcessingGroup;
-		this.frozenProcessingGroup = null;
-		this.currentUserProcessed = this._rawQueues.multi[this.processingGroup.currentIndex];
-		this.processingGroup.processedThisTurn = 0;
-		return true;
-	}
-
-	get nextUserEntry(): QueueUserEntry | false { // Note: this does NOT advance the queue or create new processing groups, this.update() does that! This is used to message the upcoming user instead
-		if (this.processingGroup.type) {
-			if (this.checkForGroupFreeze(true)) {
-				if (this.remainingUsersInSubqueue('single') >= 1) return this._rawQueues.single[this.getCurrentQueuePosition('single')];
-				if (this.remainingUsersInSubqueue('some') >= 1) return this._rawQueues.some[this.getCurrentQueuePosition('some')];
-				throw new Error("Error in nextUserEntry - Group freeze was determined to be imminent, but no high priority users that could've invoked this freeze were present!");
-			} else if (this.nextUserIndexFromProcessingGroup > -1) return this._rawQueues[this.processingGroup.type][this.nextUserIndexFromProcessingGroup];
-		}
-
-		const singleActive = this.currentUserProcessed && this.currentUserProcessed.type == 'single';
-		if (this.remainingUsersInSubqueue('single') >= (singleActive ? 2 : 1)) return this._rawQueues.single[this.getCurrentQueuePosition('single') + (singleActive ? 1 : 0)];
-
-		if (this.processingGroup.type == 'some' && this.processingGroup.firstIndex + queueMultiGroupSize >= this._rawQueues.some.length) return this._rawQueues.some[this.processingGroup.firstIndex + queueMultiGroupSize];
-
-		if (this.remainingUsersInSubqueue('some') >= 1) return this._rawQueues.some[this.getCurrentQueuePosition('some')]; //usually only if single users were called before
-
-		if (this.processingGroup.type == 'multi' && this.processingGroup.firstIndex + queueMultiGroupSize >= this._rawQueues.multi.length) return this._rawQueues.multi[this.processingGroup.firstIndex + queueMultiGroupSize];
-		if (this.remainingUsersInSubqueue('multi') >= 1) return this._rawQueues.multi[this.getCurrentQueuePosition('multi')];
-
-		return false;
-	}
-
-	closeOnExpiryAndEmpty(): void { // Note - use .bind() in the interval to preserve context
-		if (!this.acceptingEntries) return; // In case it was already closed
-		if (this.remainingUsersInSubqueue('single') != 0 || this.remainingUsersInSubqueue('some') != 0 || this.remainingUsersInSubqueue('multi') != 0) return;
-		if (this.minimumAcceptanceExpiresAt.diff(moment()) > 0) return;
-
-		// actual closure
-		if (this.joinReactionCollector && !this.joinReactionCollector.ended) this.joinReactionCollector.stop("No more entries and minimum time has expired");
-		if (this.entryCloseInterval) clearInterval(this.entryCloseInterval);
-	}
-
-	getCurrentQueuePosition(type: string, doNotIgnoreInit = false): number {
-		if (!type || !['single', 'some', 'multi'].includes(type)) throw new ReferenceError("Attempted to get a queue position, but an invalid type was specified");
-		if (doNotIgnoreInit) return this.queuePositions[type];
-		return (this.queuePositions[type] >= 0 ? this.queuePositions[type] : 0);
-	}
-
-	update(): void {
-		if (this.currentUserProcessed) return;
-		if (!this.remainingUsersInSubqueue('single') && !this.remainingUsersInSubqueue('some') && !this.remainingUsersInSubqueue('multi')) {
 
 
-			if (!this.acceptingEntries) { // Queue is now closed and finished, too
-				const queueIsClosedEmbed = new Discord.MessageEmbed({
-					color: 16711907,
-					description: `Thank you for sharing your turnip prices with everyone! It looks like the queue you started has come to an end. If you like, you can:`,
-					fields: [
-						{name: "1)", value: "Leave everything as it is, and let folks come and go in a free-for-all fashion.\n(Consider sharing the code with your friends or in a text channel)"},
-						{name: "2)", value: "Close your island and create a new Dodo Code to get a sense of privacy again, and distribute it among friends, or start a new queue if lots of folks are still asking!"},
-						{name: "3)", value: "Close your island and let us know you're done!"}
-					],
-					footer: {text: "📈 STONKS"}
-				});
-				client.users.fetch(this.id)
-					.then(user => user.send(queueIsClosedEmbed))
-					.catch(err => console.log("Couldn't message queue creating user about the queue being closed: "+err)
-				);
-				delete queueData[this.id]; // actually deleting the queue entry
-			}
-			return;
-		}
-		if (!this.dodoCode) return;
-
-		if (this.processingGroup.type) { // currently in a subgroup
-			this.processingGroup.processedThisTurn++;
-			const freezeSuccessful = this.attemptProcessingGroupFreeze();
-			if (!freezeSuccessful) {
-				if (this.nextUserIndexFromProcessingGroup > -1) { // Was an unfulfilled user in the current processing group found?
-					this.currentUserProcessed = this._rawQueues[this.processingGroup.type][this.nextUserIndexFromProcessingGroup];
-					this.processingGroup.currentIndex = this.nextUserIndexFromProcessingGroup;
-					this.currentUserProcessed.initiateTurn();
-					return;
-				} else { // Processing group is done - reset it
-					this.processingGroup = this.emptyProcessingGroup();
-				}
-			}
-		}
-		if (this.remainingUsersInSubqueue('single') > 0) {
-			this.currentUserProcessed = this._rawQueues.single[this.getCurrentQueuePosition('single')];
-			this.currentUserProcessed.initiateTurn();
-			return;
-		}
-		if (this.remainingUsersInSubqueue('some') > 0) {
-			this.processingGroup.type = 'some';
-			this.processingGroup.firstIndex = this.processingGroup.currentIndex = this.getCurrentQueuePosition('some');
-			this.currentUserProcessed = this._rawQueues.some[this.getCurrentQueuePosition('some')];
-			this.currentUserProcessed.initiateTurn();
-			return;
-		}
-		if (this.remainingUsersInSubqueue('multi') > 0) {
-			const thawSuccessful = this.attemptThawingFrozenGroup();
-			if (!thawSuccessful) {
-				this.processingGroup.type = 'multi';
-				this.processingGroup.firstIndex = this.processingGroup.currentIndex = this.getCurrentQueuePosition('multi');
-				this.currentUserProcessed = this._rawQueues.multi[this.getCurrentQueuePosition('multi')];
-			}
-			this.currentUserProcessed.initiateTurn();
-			return;
-
-		}
-	}
-}
-
-class QueueUserEntry {
-	private readonly user;
-	private queue;
-	private readonly maxVisits;
-	private readonly type;
-	private fulfilled;
-	private grantedVisits;
-	private currentUserProcessed;
-
-	constructor(userObject, queue, type) {
-		this.user = userObject;
-		this.queue = queue;
-		switch (type) {
-			case "single":
-				this.maxVisits = 1;
-				break;
-			case "some":
-				this.maxVisits = 3;
-				break;
-			case "multi":
-				this.maxVisits = Infinity;
-				break;
-			default:
-				throw new RangeError("Attempted to create an invalid queue user entry - supplied type "+type+" is invalid");
-		}
-		this.type = type;
-		this.grantedVisits = 0;
-		this.fulfilled = false;
-	}
-
-	get subQueuePosition(): number {
-		return this.queue._rawQueues[this.type].findIndex(q => q.user.id == this.user.id);
-	}
-
-	sendUpNextMessage(): void {
-		const userUpNextEmbed = new Discord.MessageEmbed({
-			title: `Your turn #${this.grantedVisits + 1} will be starting soon!`,
-			color: 16312092,
-			description: `The user in front of you in the queue has just started their turn.\nYour turn will commence in at most ${queueToSellMinutes} minutes. \nPlease prepare yourself to enter the Dodo-Code™, and don't forget your turnips!`
-		});
-		this.user.send(userUpNextEmbed);
-	}
-
-	initiateTurn(): void {
-		if (this.queue.getCurrentQueuePosition(this.type, true) === -1) this.queue.queuePositions[this.type] = 0; // Change the current queue position internally to 0 once a subqueue has started. Might have to move to the queue class itself
-		if (this.grantedVisits >= this.maxVisits) {
-			console.error(`${this.user.tag} had initiateTurn() called, but has reached it's maximum visit amount (${this.grantedVisits}/${this.maxVisits}). Double check the program flow. Skipping user and initiating next turn`);
-			this.queue.update();
-			return;
-		}
-		const userWasHereLastTurn = this.queue.previousUserProcessed === this;
-		const isLastVisit = this.grantedVisits + 1 >= this.maxVisits;
-		const yourTurnEmbed = new Discord.MessageEmbed({
-			title: "⏰ It's your turn!",
-			color: 16312092,
-			description: `You have **${queueToSellMinutes * (userWasHereLastTurn ? timeMultiplierIfHereBefore : 1)} minutes** to connect, sell your turnips, and leave the island.\nOnce your timeslot expires, the next user in the queue will be automatically messaged.\nShould you be done early, please click 👍 to notify that you're done.${isLastVisit ? "" : "\nIf you wish to reconnect later to sell more, click 🔁 to be added to the queue again. *Please note that this also ends your turn!*"}`,
-			fields: [
-				{name: "Dodo Code™", inline: false, value: `**${this.queue.dodoCode}**`},
-				{name: "Additional information:", inline: false, value: this.queue.addlInformation},
-				{name: "Visit #", inline: true, value: this.grantedVisits + 1},
-				{name: "Remaining visits", inline: true, value: this.maxVisits - (this.grantedVisits + 1)}
-			]
-		});
-		this.user.send(yourTurnEmbed).then(turnMessage => {
-			this.grantedVisits++;
-			if (this.queue.nextUserEntry) { // attempt to send message to next user in queue
-				if (this.queue.nextUserEntry.user.id === this.user.id) {
-					yourTurnEmbed.fields.push({name: "By the way...", value: "**Your next turn will be immediately after the current one!**", inline: false});
-					turnMessage.edit(yourTurnEmbed);
-				} else this.queue.nextUserEntry.sendUpNextMessage();
-			}
-			const reactionCollectorFilter = isLastVisit ? (r,u) => !u.bot && r.emoji.name == '👍' : (r,u) => !u.bot && ['👍','🔁'].includes(r.emoji.name);
-			turnMessage.react('👍');
-			if (!isLastVisit) turnMessage.react('🔁');
-			const doneCollector = turnMessage.createReactionCollector(reactionCollectorFilter, {time: (userWasHereLastTurn ? timeMultiplierIfHereBefore : 1)*queueToSellMinutes*60*1000, max: 1});
-			doneCollector.on('end', (collected, reason) => {
-				if (reason != 'time' && !isLastVisit && collected.size != 0 && collected.first().emoji.name == '🔁') {
-					turnMessage.channel.send({embed:{
-						color: 16711907,
-						description: `🔁 You have been added back into the queue.\nYour turn is over for now, but will continue soon! **Please prepare for your next visit immediately.**`
-					}});
-				} else {
-					this.fulfilled = true;
-					this.queue.queuePositions[this.type]++;
-					turnMessage.channel.send({embed:{
-						color: 4886754,
-						description: `🤚 Your turn is now over. Thanks for joining the queue!`
-					}});
-				}
-				this.queue.previousUserProcessed = this.queue.currentUserProcessed;
-				this.queue.currentUserProcessed = null;
-				this.queue.update();
-			});
-
-		}).catch(err => {
-			console.log("Failed to message a user the dodo code, skipping user: "+err);
-			this.currentUserProcessed = null;
-			this.queue.update();
-		});
-	}
-
-	estimatedWaitTime(): string {
-		const worstRepeatAssumptions = {some: 3, multi: 7};
-		const avgEstimateMultiplier = 0.66;
-		let worstEstimate = 0;
-		let userAmtInProcessingGroup = 0;
-		if (this.queue.processingGroup.type) { // There's currently a processing group active - calculate these times first.
-			// TODO: Maybe adjust this to be slightly more accurate depending on the users' subgroup position
-			if (this.type == this.queue.processingGroup.type && this.subQueuePosition < this.queue.processingGroup.firstIndex + userAmtInProcessingGroup) {
-				worstEstimate = 2 * queueToSellMinutes;
-				return `${Math.floor(worstEstimate * avgEstimateMultiplier)} - ${worstEstimate}`;
-			}
-			// User isn't in this subgroup - assume they'll have to wait for it to pass
-			if (this.queue.processingGroup.type === 'some') {
-				userAmtInProcessingGroup = this.queue.processingGroup.firstIndex + queueMultiGroupSize > this.queue._rawQueues.some.length ? this.queue._rawQueues.some.length - this.queue.processingGroup.firstIndex : 3;
-				worstEstimate += worstRepeatAssumptions.some * queueToSellMinutes * userAmtInProcessingGroup;
-			} else if (this.queue.processingGroup.type === 'multi') {
-				let turnsBeforeFreeze = minimumTurnsBeforeFreeze - this.queue.processingGroup.processedThisTurn;
-				if (turnsBeforeFreeze < 0) turnsBeforeFreeze = 0;
-				worstEstimate += turnsBeforeFreeze * queueToSellMinutes;
-			}
-		}
-
-		// Depending on this users type and position, calculate all remaining users inbetween, also subtract the users in the current processing group!
-		worstEstimate += (this.queue.remainingUsersInSubqueue('single') - (this.type == 'single' ? this.queue._rawQueues.single.length - this.subQueuePosition : 0)) * queueToSellMinutes;
-		if (this.type == 'single') return `${Math.floor(worstEstimate * avgEstimateMultiplier)} - ${worstEstimate}`;
-
-		worstEstimate += (this.queue.remainingUsersInSubqueue('some') - (this.queue.processingGroup.type == 'some' ? userAmtInProcessingGroup : 0) - (this.type == 'some' ? this.queue._rawQueues.some.length - this.subQueuePosition : 0)) * queueToSellMinutes * worstRepeatAssumptions.some;
-		if (this.type == 'some') return `${Math.floor(worstEstimate * avgEstimateMultiplier)} - ${worstEstimate}`;
-
-		worstEstimate += (this.queue.remainingUsersInSubqueue('multi') - (this.queue.processingGroup.type == 'multi' ? userAmtInProcessingGroup : 0) - (this.type == 'multi' ? this.queue._rawQueues.multi.length - this.subQueuePosition : 0)) * queueToSellMinutes * worstRepeatAssumptions.multi;
-		return `${Math.floor(worstEstimate * avgEstimateMultiplier)} - ${worstEstimate}`;
-	}
-}
 
 // Variables for the update channel functionality
 let updateChannel;
@@ -793,9 +419,6 @@ function weekIntervalToString(interval): string {
 
 const bestStonksUpdateInterval = setInterval(sendBestStonksToUpdateChannel, 5*60*1000); // update best prices every 5 minutes
 
-
-const MINIMUM_PRICE_FOR_PING = parseInt(getEnv("DISCORD_STONKS_MINIMUM_PRICE_FOR_PING", 400));
-const PING_ROLE_ID = getEnv("DISCORD_STONKS_PING_ROLE_ID", false);
 let goodPricePingRole;
 
 const inaccurateTimezones = ['CET', 'EET', 'EST', 'EST5EDT', 'GB', 'HST', 'MET', 'MST', 'PRC', 'ROC', 'ROK', 'UCT','WET', 'Universal', 'Etc/Universal',
@@ -1642,7 +1265,6 @@ client.on('ready', () => {
 	console.log(`stalnks. logged in as ${client.user.tag}`);
 
 	// get stuff about the channel and the possibly editable message
-	const updateChannelID = getEnv('DISCORD_STONKS_UPDATECHANNELID', false);
 
 	if (updateChannelID) {
 		client.channels.fetch(updateChannelID)
@@ -1689,5 +1311,3 @@ client.on('ready', () => {
 		console.log("No channel was specified as an environment variable. No updates will be sent.");
 	}
 });
-
-client.login(getEnv('DISCORD_STONKS_TOKEN')).catch(err => console.error(err));

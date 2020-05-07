@@ -9,7 +9,7 @@
         "sourceMap": true,
         "strict": false
     },
-    "include": ["./run.ts"],
+    "include": ["./run.ts", "./functions/*", "./classes/*"],
     "exclude": [
         "node_modules"
     ]

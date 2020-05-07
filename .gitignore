@@ -1,4 +1,4 @@
 node_modules/
 bot_token.txt
 data/
-.idea/
+.idea/*
