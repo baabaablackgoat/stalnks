@@ -305,6 +305,7 @@ class PriceEntry {
 const queueAcceptingMinutes = parseInt(getEnv('DISCORD_STONKS_QUEUEACCEPTINGMINUTES', '30'));
 const queueToSellMinutes = parseInt(getEnv('DISCORD_STONKS_QUEUETOSELLMINUTES', '7'));
 const queueMultiGroupSize = parseInt(getEnv('DISCORD_STONKS_QUEUEMULTIGROUPSIZE', '3'));
+const minimumTurnsBeforeFreeze = parseInt(getEnv('DISCORD_STONKS_QUEUEMINIMUMTURNSBEFOREFREEZE', 9));
 class QueueEntry {
     constructor(userId) {
         this.id = userId; // to allow for self-deletion
@@ -318,11 +319,8 @@ class QueueEntry {
             multi: [],
         };
         this.queuePositions = { single: -1, some: -1, multi: -1 };
-        this.processingGroup = {
-            groupType: false,
-            firstIndex: -1,
-            currentIndex: -1,
-        };
+        this.processingGroup = this.emptyProcessingGroup();
+        this.frozenProcessingGroup = null;
         this.previousUserProcessed = null;
         this.joinReactionCollector = null;
         this.minimumAcceptanceExpiresAt = moment().add(queueAcceptingMinutes, 'minutes');
@@ -337,6 +335,14 @@ class QueueEntry {
         return this.userQueue.findIndex(q => q.id == userId);
     }
     */
+    emptyProcessingGroup() {
+        return {
+            groupType: false,
+            firstIndex: -1,
+            currentIndex: -1,
+            processedThisTurn: 0
+        };
+    }
     addUserToQueue(userObject, type) {
         if (!userObject)
             throw new Error("No user object specified: Userobject was " + userObject);
@@ -349,7 +355,7 @@ class QueueEntry {
         // Make sure the user is DM-able, and send confirmation message.
         const addedToQueueEmbed = new Discord.MessageEmbed({
             color: 16711907,
-            description: `You have been added to the queue for a maximum of ${type == 'single' ? '1' : type == 'some' ? "3" : "unlimited"} visit(s).\nYour estimated wait time is **⏳ minutes**.\nIf you wish to leave the queue, click 👋.`
+            description: `You have been added to the queue for a maximum of ${type == 'single' ? '1' : type == 'some' ? "3" : "unlimited"} visit(s).\nYour estimated wait time is **⏳ minutes**.\n${type === 'multi' ? "\n⚠ **Because you signed up for potentially infinitely many visits, please keep in mind that your visiting streak might be interrupted for people with less visits.**\n\n" : ""}If you wish to leave the queue, click 👋.`
         });
         userObject.send(addedToQueueEmbed)
             .then(confirmationMsg => {
@@ -401,9 +407,45 @@ class QueueEntry {
         }
         throw new Error("Something went wrong while attempting to find the next user in the current processing group.");
     }
+    checkForGroupFreeze(nextTurn = false) {
+        if (this.processingGroup.type !== 'multi')
+            return false;
+        if (this.processingGroup.processedThisTurn + (nextTurn ? 1 : 0) < minimumTurnsBeforeFreeze)
+            return false;
+        if (this.remainingUsersInSubqueue('single') === 0 && this.remainingUsersInSubqueue('some') === 0)
+            return false;
+        return true;
+    }
+    attemptProcessingGroupFreeze() {
+        if (!this.checkForGroupFreeze())
+            return false;
+        if (this.frozenProcessingGroup !== null)
+            throw new Error("Processing group was about to be frozen, but a frozen group already exists!");
+        this.frozenProcessingGroup = this.processingGroup;
+        this.processingGroup = this.emptyProcessingGroup();
+        return true;
+    }
+    attemptThawingFrozenGroup() {
+        if (!this.frozenProcessingGroup)
+            return false;
+        this.processingGroup = this.frozenProcessingGroup;
+        this.frozenProcessingGroup = null;
+        this.currentUserProcessed = this._rawQueues.multi[this.processingGroup.currentIndex];
+        this.processingGroup.processedThisTurn = 0;
+        return true;
+    }
     get nextUserEntry() {
-        if (this.processingGroup.type && this.nextUserIndexFromProcessingGroup > -1)
-            return this._rawQueues[this.processingGroup.type][this.nextUserIndexFromProcessingGroup];
+        if (this.processingGroup.type) {
+            if (this.checkForGroupFreeze(true)) {
+                if (this.remainingUsersInSubqueue('single') >= 1)
+                    return this._rawQueues.single[this.getCurrentQueuePosition('single')];
+                if (this.remainingUsersInSubqueue('some') >= 1)
+                    return this._rawQueues.some[this.getCurrentQueuePosition('some')];
+                throw new Error("Error in nextUserEntry - Group freeze was determined to be imminent, but no high priority users that could've invoked this freeze were present!");
+            }
+            else if (this.nextUserIndexFromProcessingGroup > -1)
+                return this._rawQueues[this.processingGroup.type][this.nextUserIndexFromProcessingGroup];
+        }
         const singleActive = this.currentUserProcessed && this.currentUserProcessed.type == 'single';
         if (this.remainingUsersInSubqueue('single') >= (singleActive ? 2 : 1))
             return this._rawQueues.single[this.getCurrentQueuePosition('single') + (singleActive ? 1 : 0)];
@@ -422,10 +464,8 @@ class QueueEntry {
             return; // In case it was already closed
         if (this.remainingUsersInSubqueue('single') != 0 || this.remainingUsersInSubqueue('some') != 0 || this.remainingUsersInSubqueue('multi') != 0)
             return;
-        console.log('no users');
         if (this.minimumAcceptanceExpiresAt.diff(moment()) > 0)
             return;
-        console.log('timeout closing');
         // actual closure
         if (this.joinReactionCollector && !this.joinReactionCollector.ended)
             this.joinReactionCollector.stop("No more entries and minimum time has expired");
@@ -464,16 +504,18 @@ class QueueEntry {
         if (!this.dodoCode)
             return;
         if (this.processingGroup.type) { // currently in a subgroup
-            if (this.nextUserIndexFromProcessingGroup > -1) { // Was an unfulfilled user in the current processing group found?
-                this.currentUserProcessed = this._rawQueues[this.processingGroup.type][this.nextUserIndexFromProcessingGroup];
-                this.processingGroup.currentIndex = this.nextUserIndexFromProcessingGroup;
-                this.currentUserProcessed.initiateTurn();
-                return;
-            }
-            else { // Processing group is done - reset it
-                this.processingGroup.type = false;
-                this.processingGroup.firstIndex = -1;
-                this.processingGroup.currentIndex = -1;
+            this.processingGroup.processedThisTurn++;
+            const freezeSuccessful = this.attemptProcessingGroupFreeze();
+            if (!freezeSuccessful) {
+                if (this.nextUserIndexFromProcessingGroup > -1) { // Was an unfulfilled user in the current processing group found?
+                    this.currentUserProcessed = this._rawQueues[this.processingGroup.type][this.nextUserIndexFromProcessingGroup];
+                    this.processingGroup.currentIndex = this.nextUserIndexFromProcessingGroup;
+                    this.currentUserProcessed.initiateTurn();
+                    return;
+                }
+                else { // Processing group is done - reset it
+                    this.processingGroup = this.emptyProcessingGroup();
+                }
             }
         }
         if (this.remainingUsersInSubqueue('single') > 0) {
@@ -489,9 +531,12 @@ class QueueEntry {
             return;
         }
         if (this.remainingUsersInSubqueue('multi') > 0) {
-            this.processingGroup.type = 'multi';
-            this.processingGroup.firstIndex = this.processingGroup.currentIndex = this.getCurrentQueuePosition('multi');
-            this.currentUserProcessed = this._rawQueues.multi[this.getCurrentQueuePosition('multi')];
+            const thawSuccessful = this.attemptThawingFrozenGroup();
+            if (!thawSuccessful) {
+                this.processingGroup.type = 'multi';
+                this.processingGroup.firstIndex = this.processingGroup.currentIndex = this.getCurrentQueuePosition('multi');
+                this.currentUserProcessed = this._rawQueues.multi[this.getCurrentQueuePosition('multi')];
+            }
             this.currentUserProcessed.initiateTurn();
             return;
         }
@@ -601,8 +646,16 @@ class QueueUserEntry {
                 return `${Math.floor(worstEstimate * avgEstimateMultiplier)} - ${worstEstimate}`;
             }
             // User isn't in this subgroup - assume they'll have to wait for it to pass
-            userAmtInProcessingGroup = this.queue.processingGroup.firstIndex + queueMultiGroupSize > this.queue._rawQueues[this.queue.processingGroup.type].length ? this.queue._rawQueues[this.queue.processingGroup.type].length - this.queue.processingGroup.firstIndex : 3;
-            worstEstimate += worstRepeatAssumptions[this.queue.processingGroup.type] * queueToSellMinutes * userAmtInProcessingGroup;
+            if (this.queue.processingGroup.type === 'some') {
+                userAmtInProcessingGroup = this.queue.processingGroup.firstIndex + queueMultiGroupSize > this.queue._rawQueues.some.length ? this.queue._rawQueues.some.length - this.queue.processingGroup.firstIndex : 3;
+                worstEstimate += worstRepeatAssumptions.some * queueToSellMinutes * userAmtInProcessingGroup;
+            }
+            else if (this.queue.processingGroup.type === 'multi') {
+                let turnsBeforeFreeze = minimumTurnsBeforeFreeze - this.queue.processingGroup.processedThisTurn;
+                if (turnsBeforeFreeze < 0)
+                    turnsBeforeFreeze = 0;
+                worstEstimate += turnsBeforeFreeze * queueToSellMinutes;
+            }
         }
         // Depending on this users type and position, calculate all remaining users inbetween, also subtract the users in the current processing group!
         worstEstimate += (this.queue.remainingUsersInSubqueue('single') - (this.type == 'single' ? this.queue._rawQueues.single.length - this.subQueuePosition : 0)) * queueToSellMinutes;
@@ -1245,7 +1298,7 @@ client.on('message', msg => {
                 for (let i = 0; i < joinEmoteList.length; i++) {
                     reactionJoinMsg.react(joinEmoteList[i]).catch(err => console.error(err));
                 }
-                queueData[msg.author.id].joinReactionCollector = reactionJoinMsg.createReactionCollector((r, u) => !u.bot && u.id != msg.author.id && joinEmoteList.includes(r.emoji.name), { time: 12 * 60 * 60 * 1000 });
+                queueData[msg.author.id].joinReactionCollector = reactionJoinMsg.createReactionCollector((r, u) => !u.bot && /*TESTING u.id != msg.author.id &&*/ joinEmoteList.includes(r.emoji.name), { time: 12 * 60 * 60 * 1000 });
                 queueData[msg.author.id].joinReactionCollector.on('collect', (reaction, reactingUser) => {
                     const userQueueTypeList = ['single', 'some', 'multi'];
                     queueData[msg.author.id].addUserToQueue(reactingUser, userQueueTypeList[joinEmoteList.indexOf(reaction.emoji.name)]);
