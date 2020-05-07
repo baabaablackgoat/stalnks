@@ -317,7 +317,7 @@ class QueueEntry {
             some: [],
             multi: [],
         };
-        this.queuePositions = { single: 0, some: 0, multi: 0 };
+        this.queuePositions = { single: -1, some: -1, multi: -1 };
         this.processingGroup = {
             groupType: false,
             firstIndex: -1,
@@ -366,7 +366,7 @@ class QueueEntry {
                 if (!this)
                     return; // just in case the queue was already deleted
                 const foundUserIndex = this._rawQueues[type].findIndex(e => e.user.id == leavingUser.id);
-                if (foundUserIndex >= 0 && foundUserIndex > this.queuePositions[type]) {
+                if (foundUserIndex >= 0 && foundUserIndex > this.getCurrentQueuePosition(type, true)) {
                     this._rawQueues[type].splice(foundUserIndex, 1);
                     leavingUser.send({ embed: {
                             color: 16711907,
@@ -377,7 +377,7 @@ class QueueEntry {
         }).catch(err => console.log("Couldn't add " + userObject.tag + " to queue - most likely has DMs disabled. Details: " + err));
     }
     remainingUsersInSubqueue(type) {
-        return this._rawQueues[type].length - this.queuePositions[type];
+        return this._rawQueues[type].length - this.getCurrentQueuePosition(type);
     }
     get nextUserIndexFromProcessingGroup() {
         if (!this.processingGroup.type)
@@ -406,15 +406,15 @@ class QueueEntry {
             return this._rawQueues[this.processingGroup.type][this.nextUserIndexFromProcessingGroup];
         const singleActive = this.currentUserProcessed && this.currentUserProcessed.type == 'single';
         if (this.remainingUsersInSubqueue('single') >= (singleActive ? 2 : 1))
-            return this._rawQueues.single[this.queuePositions.single + (singleActive ? 1 : 0)];
+            return this._rawQueues.single[this.getCurrentQueuePosition('single') + (singleActive ? 1 : 0)];
         if (this.processingGroup.type == 'some' && this.processingGroup.firstIndex + queueMultiGroupSize >= this._rawQueues.some.length)
             return this._rawQueues.some[this.processingGroup.firstIndex + queueMultiGroupSize];
         if (this.remainingUsersInSubqueue('some') >= 1)
-            return this._rawQueues.some[this.queuePositions.some]; //usually only if single users were called before
+            return this._rawQueues.some[this.getCurrentQueuePosition('some')]; //usually only if single users were called before
         if (this.processingGroup.type == 'multi' && this.processingGroup.firstIndex + queueMultiGroupSize >= this._rawQueues.multi.length)
             return this._rawQueues.multi[this.processingGroup.firstIndex + queueMultiGroupSize];
         if (this.remainingUsersInSubqueue('multi') >= 1)
-            return this._rawQueues.multi[this.queuePositions.multi];
+            return this._rawQueues.multi[this.getCurrentQueuePosition('multi')];
         return false;
     }
     closeOnExpiryAndEmpty() {
@@ -431,6 +431,13 @@ class QueueEntry {
             this.joinReactionCollector.stop("No more entries and minimum time has expired");
         if (this.entryCloseInterval)
             clearInterval(this.entryCloseInterval);
+    }
+    getCurrentQueuePosition(type, doNotIgnoreInit = false) {
+        if (!type || !['single', 'some', 'multi'].includes(type))
+            throw new ReferenceError("Attempted to get a queue position, but an invalid type was specified");
+        if (doNotIgnoreInit)
+            return this.queuePositions[type];
+        return (this.queuePositions[type] >= 0 ? this.queuePositions[type] : 0);
     }
     update() {
         if (this.currentUserProcessed)
@@ -470,21 +477,21 @@ class QueueEntry {
             }
         }
         if (this.remainingUsersInSubqueue('single') > 0) {
-            this.currentUserProcessed = this._rawQueues.single[this.queuePositions.single];
+            this.currentUserProcessed = this._rawQueues.single[this.getCurrentQueuePosition('single')];
             this.currentUserProcessed.initiateTurn();
             return;
         }
         if (this.remainingUsersInSubqueue('some') > 0) {
             this.processingGroup.type = 'some';
-            this.processingGroup.firstIndex = this.processingGroup.currentIndex = this.queuePositions.some;
-            this.currentUserProcessed = this._rawQueues.some[this.queuePositions.some];
+            this.processingGroup.firstIndex = this.processingGroup.currentIndex = this.getCurrentQueuePosition('some');
+            this.currentUserProcessed = this._rawQueues.some[this.getCurrentQueuePosition('some')];
             this.currentUserProcessed.initiateTurn();
             return;
         }
         if (this.remainingUsersInSubqueue('multi') > 0) {
             this.processingGroup.type = 'multi';
-            this.processingGroup.firstIndex = this.processingGroup.currentIndex = this.queuePositions.multi;
-            this.currentUserProcessed = this._rawQueues.multi[this.queuePositions.multi];
+            this.processingGroup.firstIndex = this.processingGroup.currentIndex = this.getCurrentQueuePosition('multi');
+            this.currentUserProcessed = this._rawQueues.multi[this.getCurrentQueuePosition('multi')];
             this.currentUserProcessed.initiateTurn();
             return;
         }
@@ -523,6 +530,8 @@ class QueueUserEntry {
         this.user.send(userUpNextEmbed);
     }
     initiateTurn() {
+        if (this.queue.getCurrentQueuePosition(this.type, true) === -1)
+            this.queue.queuePositions[this.type] = 0; // Change the current queue position internally to 0 once a subqueue has started. Might have to move to the queue class itself
         if (this.grantedVisits >= this.maxVisits) {
             console.error(`${this.user.tag} had initiateTurn() called, but has reached it's maximum visit amount (${this.grantedVisits}/${this.maxVisits}). Double check the program flow. Skipping user and initiating next turn`);
             this.queue.update();
