@@ -305,7 +305,8 @@ class PriceEntry {
 const queueAcceptingMinutes = parseInt(getEnv('DISCORD_STONKS_QUEUEACCEPTINGMINUTES', '30'));
 const queueToSellMinutes = parseInt(getEnv('DISCORD_STONKS_QUEUETOSELLMINUTES', '7'));
 const queueMultiGroupSize = parseInt(getEnv('DISCORD_STONKS_QUEUEMULTIGROUPSIZE', '3'));
-const minimumTurnsBeforeFreeze = parseInt(getEnv('DISCORD_STONKS_QUEUEMINIMUMTURNSBEFOREFREEZE', 9));
+const minimumTurnsBeforeFreeze = parseInt(getEnv('DISCORD_STONKS_QUEUEMINIMUMTURNSBEFOREFREEZE', '9'));
+const timeMultiplierIfHereBefore = parseFloat(getEnv('DISCORD_STONKS_TIMEMULTIPLIERIFHEREBEFORE', '1.5'));
 class QueueEntry {
     constructor(userId) {
         this.id = userId; // to allow for self-deletion
@@ -582,11 +583,12 @@ class QueueUserEntry {
             this.queue.update();
             return;
         }
+        const userWasHereLastTurn = this.queue.previousUserProcessed === this;
         const isLastVisit = this.grantedVisits + 1 >= this.maxVisits;
         const yourTurnEmbed = new Discord.MessageEmbed({
             title: "⏰ It's your turn!",
             color: 16312092,
-            description: `You have **${queueToSellMinutes} minutes** to connect, sell your turnips, and leave the island.\nOnce your timeslot expires, the next user in the queue will be automatically messaged.\nShould you be done early, please click 👍 to notify that you're done.${isLastVisit ? "" : "\nIf you wish to reconnect later to sell more, click 🔁 to be added to the queue again. *Please note that this also ends your turn!*"}`,
+            description: `You have **${queueToSellMinutes * (userWasHereLastTurn ? timeMultiplierIfHereBefore : 1)} minutes** to connect, sell your turnips, and leave the island.\nOnce your timeslot expires, the next user in the queue will be automatically messaged.\nShould you be done early, please click 👍 to notify that you're done.${isLastVisit ? "" : "\nIf you wish to reconnect later to sell more, click 🔁 to be added to the queue again. *Please note that this also ends your turn!*"}`,
             fields: [
                 { name: "Dodo Code™", inline: false, value: `**${this.queue.dodoCode}**` },
                 { name: "Additional information:", inline: false, value: this.queue.addlInformation },
@@ -608,7 +610,7 @@ class QueueUserEntry {
             turnMessage.react('👍');
             if (!isLastVisit)
                 turnMessage.react('🔁');
-            const doneCollector = turnMessage.createReactionCollector(reactionCollectorFilter, { time: queueToSellMinutes * 60 * 1000, max: 1 });
+            const doneCollector = turnMessage.createReactionCollector(reactionCollectorFilter, { time: (userWasHereLastTurn ? timeMultiplierIfHereBefore : 1) * queueToSellMinutes * 60 * 1000, max: 1 });
             doneCollector.on('end', (collected, reason) => {
                 if (reason != 'time' && !isLastVisit && collected.size != 0 && collected.first().emoji.name == '🔁') {
                     turnMessage.channel.send({ embed: {
@@ -1298,7 +1300,7 @@ client.on('message', msg => {
                 for (let i = 0; i < joinEmoteList.length; i++) {
                     reactionJoinMsg.react(joinEmoteList[i]).catch(err => console.error(err));
                 }
-                queueData[msg.author.id].joinReactionCollector = reactionJoinMsg.createReactionCollector((r, u) => !u.bot && /*TESTING u.id != msg.author.id &&*/ joinEmoteList.includes(r.emoji.name), { time: 12 * 60 * 60 * 1000 });
+                queueData[msg.author.id].joinReactionCollector = reactionJoinMsg.createReactionCollector((r, u) => !u.bot && u.id != msg.author.id && joinEmoteList.includes(r.emoji.name), { time: 12 * 60 * 60 * 1000 });
                 queueData[msg.author.id].joinReactionCollector.on('collect', (reaction, reactingUser) => {
                     const userQueueTypeList = ['single', 'some', 'multi'];
                     queueData[msg.author.id].addUserToQueue(reactingUser, userQueueTypeList[joinEmoteList.indexOf(reaction.emoji.name)]);
