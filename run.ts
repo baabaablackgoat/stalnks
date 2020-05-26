@@ -40,6 +40,24 @@ function clearFinishedQueues(): void {
 
 const queueDeleteEntriesInterval = setInterval(clearFinishedQueues, 60*1000);
 
+function updatePricesDatabase(userId?: number) { // This should be called every time a value has changed in prices
+	const priceQuery = 'SELECT FROM prices';
+	if (userId) {
+		// Do something to only that entry
+	} else {
+		// Apply check to entire database
+	}
+	// Query the database for the userIDs column.
+	// Do these checks:
+	// 1) Memory and Database both have an entry for this ID. => Is the entry exactly equal? If not, update Database with Memory values.
+	// 2) Memory has an entry that the Database doesn't. => Add this entry to the Database.
+	// 3) Database has an entry that Memory doesn't. => Expired entry, drop from database.
+}
+
+function updateUserDatabase() { // This shou
+
+}
+
 
 fs.readFile(userDataPath, 'utf8', (err, data) => {
 	if (err) {
@@ -897,7 +915,8 @@ client.on('message', msg => {
 							informationEmbed.description = `❌ This queue has been cancelled or has timed out on creation.`;
 							informationMessage.edit(informationEmbed);
 						}
-						delete queueData[msg.author.id];
+						if (queueData.hasOwnProperty(msg.author.id)) queueData[msg.author.id].joinReactionCollector.stop("User failed to create queue in time.");
+						this.flaggedForDeletion = true;
 						return;
 					}
 					else {
