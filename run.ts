@@ -18,9 +18,17 @@ interface UserTimezones {
 }
 
 let userData: UserTimezones = {}; // this shall store the timezones of our users
+
 const priceDataPath = './data/priceData.json';
-let priceData = {}; // this will be some form of an ordered list
-const queueData = {}; // this object handles queues, and doesn't need to be saved cause queues will break on restarts anyways.
+interface PriceData {
+	[key: string]: PriceEntry;
+}
+let priceData: PriceData = {}; // this will be some form of an ordered list
+
+interface QueueData {
+	[key: string]: QueueEntry;
+}
+const queueData: QueueData = {}; // this object handles queues, and doesn't need to be saved cause queues will break on restarts anyways.
 
 const botOwnerID = getEnv('DISCORD_STONKS_BOTOWNERID');
 const dismissTimeout = parseInt(getEnv('DISCORD_STONKS_DISMISSMESSAGETIMEOUT', '5'));
