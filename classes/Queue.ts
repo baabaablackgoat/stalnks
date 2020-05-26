@@ -3,6 +3,7 @@ import * as Discord from "discord.js";
 
 import client from "../functions/Client";
 import getEnv from "../functions/getEnv";
+import { User } from "discord.js";
 
 const QUEUE_ACCEPTING_MINUTES = parseInt(getEnv('DISCORD_STONKS_QUEUEACCEPTINGMINUTES', '30'));
 const QUEUE_MULTI_GROUP_SIZE = parseInt(getEnv('DISCORD_STONKS_QUEUEMULTIGROUPSIZE', '3'));
@@ -11,15 +12,15 @@ const QUEUE_TO_SELL_MINUTES = parseInt(getEnv('DISCORD_STONKS_QUEUETOSELLMINUTES
 const TIME_MULTIPLIER_IF_HERE_BEFORE = parseFloat(getEnv('DISCORD_STONKS_TIMEMULTIPLIERIFHEREBEFORE', '1.5'));
 
 class QueueUserEntry {
-    private readonly user;
-    private queue;
-    private readonly maxVisits;
-    private readonly type;
-    private fulfilled;
-    private grantedVisits;
-    private currentUserProcessed;
+    private readonly user: User;
+    private queue: QueueEntry;
+    private readonly maxVisits: number;
+    private readonly type: string;
+    private fulfilled: boolean;
+    private grantedVisits: number;
+    private currentUserProcessed: null; // TODO: check if this is needed?
 
-    constructor(userObject, queue, type) {
+    constructor(userObject: User, queue: QueueEntry, type: string) {
         this.user = userObject;
         this.queue = queue;
         switch (type) {
@@ -160,13 +161,13 @@ export class QueueEntry {
     private readonly id;
     public dodoCode;
     public addlInformation;
-    private currentUserProcessed;
+    public currentUserProcessed;
     public acceptingEntries;
-    private readonly _rawQueues;
-    private readonly queuePositions;
-    private processingGroup;
+    public readonly _rawQueues;
+    public readonly queuePositions;
+    public processingGroup;
     public joinReactionCollector;
-    private readonly previousUserProcessed;
+    public previousUserProcessed;
     private readonly minimumAcceptanceExpiresAt;
     private readonly entryCloseInterval;
     private frozenProcessingGroup;
