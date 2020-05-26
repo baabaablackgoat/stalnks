@@ -80,7 +80,7 @@ export class UserEntry {
         else return `https://turnipprophet.io${this.lastWeekPattern !== undefined ? "?pattern=" + this.lastWeekPattern : ""}`;
     }
 
-    static fromRaw(id, obj): UserEntry {
+    static fromDatabase(id, obj): UserEntry {
         return new UserEntry(
             id,
             obj.timezone,

@@ -1,30 +1,49 @@
 import * as Discord from "discord.js";
 import {TextChannel} from "discord.js";
 import * as moment from "moment-timezone";
-import * as fs from "fs";
+//import * as fs from "fs"; // This should be replaced with a database, fool
+import {Client as Postgre} from "pg";
 import {QueueEntry} from "./classes/Queue";
 import embedColors from "./classes/embedColors";
 import getEnv from "./functions/getEnv";
 import client from "./functions/Client";
 import { UserEntry } from "./classes/UserEntry";
 
-// ensure data exists
-if (!fs.existsSync('./data')){
-	fs.mkdirSync('./data');
-}
+const PostgreClient = new Postgre({
+	host: getEnv('DISCORD_STONKS_POSTGRES_HOST', "localhost"),
+	user: getEnv('DISCORD_STONKS_POSTGRES_USER', "postgres"),
+	database: getEnv('DISCORD_STONKS_POSTGRES_DATABASE', "stalnks"),
+	port: parseInt(getEnv('DISCORD_STONKS_POSTGRES_PORT', "5432")),
+	password: getEnv('DISCORD_STONKS_POSTGRES_PASSWORD'),
+});
+PostgreClient.connect()
+	.then(() => {
+		console.log("Successfully connected to Postgres database.")
+	}).catch(err => {
+		console.log("Failed to connect to Postgres database: "+err.stack);
+	});
+
+PostgreClient.on('error', err => console.error("Error occured in Postgres-Node Client: ", err.stack));
+PostgreClient.on('end', console.log('Postgres-Node has ended/disconnected.'));
+
+
 
 // timezone & friend code data
-const userDataPath = './data/userData.json';
 interface UserTimezones {
 	[key: string]: UserEntry;
 }
 
 let userData: UserTimezones = {}; // this shall store the timezones of our users
-const priceDataPath = './data/priceData.json';
 interface PriceData {
 	[key: string]: PriceEntry;
 }
 let priceData: PriceData = {}; // this will be some form of an ordered list
+
+interface PriceEntryDB {
+	id: any;
+	price: number;
+	expiresAt: any;
+}
 
 interface QueueData {
 	[key: string]: QueueEntry;
@@ -46,27 +65,187 @@ function clearFinishedQueues(): void {
 	}
 }
 
+/* TODO offload to a seperate file */
+class PriceEntry {
+	private readonly id;
+	private readonly user;
+	private expiresAt;
+	private _price;
+
+	constructor(userId, price, expiresAt = null) {
+		// sanity checks. these *can* be made redundant, but you can also just handle errors
+		if (!(userId in userData)) throw new ReferenceError("userId "+userId+" not registered in userData.");
+		// used when loading existing data
+		if (expiresAt && moment(expiresAt).diff(moment().utc()) <= 0) throw new RangeError("Supplied entry expires in the past.");
+		this.id = userId;
+		this.user = userData[userId];
+		this.updatePrice(price);
+		// updateBestStonks();
+	}
+
+	timeLeft(): number{
+		return this.expiresAt.diff(moment().tz(this.user.timezone));
+	}
+
+	timeLeftString(): string {
+		const timeLeft = this.timeLeft();
+		return `${Math.floor((timeLeft / 3600000) % 24)}h${Math.floor((timeLeft / 60000) % 60)}m`;
+	}
+
+	getPriceInterval(): number {
+		// Sunday:      0
+		// Monday AM:   1
+		// Monday PM:   2
+		// Tuesday AM:  3
+		// ...
+		// Saturday AM: 11
+		// Saturday PM: 12
+		const userTz = userData[this.user.id].timezone;
+		const m = moment().tz(userTz);
+		if (m.day() == 0) {
+			return 0;
+		} else {
+			return m.day() * 2 - Number(m.hour() < 12);
+		}
+	}
+
+	updatePrice(price): void {
+		if (isNaN(price) || price < 0 || price > 1000 || price % 1 != 0) throw new RangeError("Supplied price "+price+" is invalid");
+		const nowTz = moment().tz(userData[this.user.id].timezone); // the current time, adjusted with the timezone of the user.
+		if (nowTz.weekday() == 7) throw new RangeError("Cannot create offers on a sunday - turnips aren't sold on sundays.");
+		this._price = price;
+		this.user.weekPrices[this.getPriceInterval()] = price;
+		this.expiresAt = nowTz.hour() < 12 ? nowTz.clone().hour(12).minute(0).second(0).millisecond(0) : nowTz.clone().hour(24).minute(0).second(0).millisecond(0);
+	}
+
+	static fromDatabase(id, row): PriceEntry {
+		return new PriceEntry(
+			id,
+			row.price,
+			row.expiresAt
+		);
+	}
+
+	get toDatabase(): PriceEntryDB {
+		return {
+			userId: this.id,
+			price: this._price,
+			expiresAt: this.expiresAt.utc()
+		}
+	}
+
+	get price(): number | false {
+		if (this.timeLeft() <= 0) { // entry has expired - delete self and return false.
+			console.log(`Listing by user ${this.id} was accessed but is expired, removing.`);
+			delete priceData[this.id];
+			return false;
+		}
+		return this._price;
+	}
+}
+
+
 const queueDeleteEntriesInterval = setInterval(clearFinishedQueues, 60*1000);
 
-function updatePricesDatabase(userId?: number) { // This should be called every time a value has changed in prices
-	const priceQuery = 'SELECT FROM prices';
-	if (userId) {
-		// Do something to only that entry
-	} else {
-		// Apply check to entire database
-	}
-	// Query the database for the userIDs column.
+function loadOnStartFromDatabase(): void {
+	// Do user data first
+	PostgreClient.query('SELECT * FROM userEntries', (err, res) => {
+		if (err) throw err;
+		for (const row of res.rows) {
+			try {
+				userData[row.userId] = UserEntry.fromDatabase(row.userId, row);
+			} catch (entryErr) {
+				console.log("Non-fatal error raised while initially reading userData from database: ", entryErr);
+			}
+		}
+	});
+
+	// then do price data
+	PostgreClient.query('SELECT * FROM prices', (err, res) => {
+		if (err) throw err;
+		for (const row of res.rows) {
+			try {
+				priceData[row.userId] = PriceEntry.fromDatabase(row.userId, row);
+			} catch (entryErr) {
+				console.log("Non-fatal error raised while initially reading priceData from database:", entryErr);
+			}
+		}
+	})
+}
+loadOnStartFromDatabase();
+
+function handlePriceRowForDatabase(userId: number, row?) {
 	// Do these checks:
 	// 1) Memory and Database both have an entry for this ID. => Is the entry exactly equal? If not, update Database with Memory values.
 	// 2) Memory has an entry that the Database doesn't. => Add this entry to the Database.
 	// 3) Database has an entry that Memory doesn't. => Expired entry, drop from database.
+
+	const dbHasEntry = row !== undefined;
+	const memoryHasEntry = priceData.hasOwnProperty(userId);
+	const newDBData = memoryHasEntry ? priceData[userId].toDatabase : null;
+	if (dbHasEntry && memoryHasEntry) {
+		if (!priceData[userId].price) { // Should this be false, then the price is selfdestructing right now - shouldn't occur in normal usage but catch this anyways
+			PostgreClient.query('DELETE FROM prices WHERE userId = $1', userId)
+				.then(res => console.log("Price entry removed from DB ", res))
+				.catch(err => console.error("Error occurred while deleting price row in database for user "+userId, err));
+			return;
+		}
+
+		if (newDBData.price !== row.value || newDBData.expiresAt !== row.expiresAt) {
+			PostgreClient.query('UPDATE prices SET price = $1, expiresAt = $2 WHERE userId = $3', [newDBData.price, newDBData.expiresAt, newDBData.id])
+				.then(res => console.log("Row updated successfully - ", res))
+				.catch(err => console.error("Error occurred while updating price table in database for user "+userId, err));
+		}
+		// nothing was different, so do nothing.
+		return;
+	}
+	if (!dbHasEntry && memoryHasEntry) { // NEW ENTRY!
+		PostgreClient.query('INSERT INTO prices (id, price, expiresAt) VALUES ($1, $2, $3)', [newDBData.id, newDBData.price, newDBData.expiresAt])
+			.then(res => console.log("DB Price entry created successfully - ", res))
+			.catch(err => console.error("Error occurred while creating price row in database for user "+userId, err));
+
+	}
+	if (dbHasEntry && !memoryHasEntry) { // Old entry. delet this from DB
+		PostgreClient.query('DELETE FROM prices WHERE userId = $1', userId)
+			.then(res => console.log("Price entry removed from DB ", res))
+			.catch(err => console.error("Error occurred while deleting price row in database for user "+userId, err));
+	}
+
 }
 
-function updateUserDatabase() { // This shou
+function updatePricesInDatabase(userId?: number): void { // This should be called every time prices have been updated. Passing a user id will only update *that* entry.0
+	if (userId) {
+		PostgreClient.query('SELECT * FROM prices WHERE userId = $1', [userId])
+			.then(res => {
+				handlePriceRowForDatabase(userId, res.rows.length === 1 ? res.rows[0] : null);
+			})
+			.catch(err => {
+				console.error("Error occured while updating price for "+userId+" in Postgres database: ",err.stack);
+			})
+		return;
+	} else {// Query the entire database - TODO not done yet heck
+
+		PostgreClient.query('SELECT * FROM prices')
+			.then(res => {
+				if (res.rows.length > 0) {
+					for (const row in res.rows) {
+						handlePriceRowForDatabase(row.id, row); // TODO this doesn't work aaa
+					}
+				} else {
+					console.log("Query for all prices returned zero results. This is not an error!")
+				}
+				// todo filter for the memory exclusive entries and run handlePriceRowForDatabase on those aswell
+			})
+			.catch(err => console.error("Error occured while updating prices for ALL users in Postgres database: ",err.stack));
+	}
 
 }
 
+function updateUserDatabase(userId?: number) { // This should be called every time a user has changed
+	// todo basically the same as updatePriceDatabase
+}
 
+/*
 fs.readFile(userDataPath, 'utf8', (err, data) => {
 	if (err) {
 		if (err.code == 'ENOENT') { // no data found - create new file!
@@ -132,6 +311,7 @@ function saveData(): void {
 	});
 }
 const saveInterval = setInterval(saveData, 60000);
+*/
 
 // get the best stonks
 let bestStonks = [null, null, null];
@@ -184,75 +364,7 @@ function hasElevatedPermissions(member): boolean {
 	return false;
 }
 
-class PriceEntry {
-	private readonly id;
-	private readonly user;
-	private expiresAt;
-	private _price;
 
-	constructor(userId, price, expiresAt = null) {
-		// sanity checks. these *can* be made redundant, but you can also just handle errors
-		if (!(userId in userData)) throw new ReferenceError("userId "+userId+" not registered in userData.");
-		// used when loading existing data
-		if (expiresAt && moment(expiresAt).diff(moment().utc()) <= 0) throw new RangeError("Supplied entry expires in the past.");
-		this.id = userId;
-		this.user = userData[userId];
-		this.updatePrice(price);
-		// updateBestStonks();
-	}
-
-	timeLeft(): number{
-		return this.expiresAt.diff(moment().tz(this.user.timezone));
-	}
-
-	timeLeftString(): string {
-		const timeLeft = this.timeLeft();
-		return `${Math.floor((timeLeft / 3600000) % 24)}h${Math.floor((timeLeft / 60000) % 60)}m`;
-	}
-
-	getPriceInterval(): number {
-		// Sunday:      0
-		// Monday AM:   1
-		// Monday PM:   2
-		// Tuesday AM:  3
-		// ...
-		// Saturday AM: 11
-		// Saturday PM: 12
-		const userTz = userData[this.user.id].timezone;
-		const m = moment().tz(userTz);
-		if (m.day() == 0) {
-			return 0;
-		} else {
-			return m.day() * 2 - Number(m.hour() < 12);
-		}
-	}
-
-	updatePrice(price): void {
-		if (isNaN(price) || price < 0 || price > 1000 || price % 1 != 0) throw new RangeError("Supplied price "+price+" is invalid");
-		const nowTz = moment().tz(userData[this.user.id].timezone); // the current time, adjusted with the timezone of the user.
-		if (nowTz.weekday() == 7) throw new RangeError("Cannot create offers on a sunday - turnips aren't sold on sundays.");
-		this._price = price;
-		this.user.weekPrices[this.getPriceInterval()] = price;
-		this.expiresAt = nowTz.hour() < 12 ? nowTz.clone().hour(12).minute(0).second(0).millisecond(0) : nowTz.clone().hour(24).minute(0).second(0).millisecond(0);
-	}
-
-	static fromRaw(id, obj): PriceEntry {
-		return new PriceEntry(
-			id,
-			obj._price,
-			obj.expiresAt
-		);
-	}
-
-	get price(): number | false {
-		if (this.timeLeft() <= 0) { // entry has expired - delete self and return false.
-			console.log(`Listing by user ${this.id} was accessed but is expired, removing.`);
-			delete priceData[this.id];
-			return false;
-		}
-		return this._price;
-	}
-}
 
 
 
