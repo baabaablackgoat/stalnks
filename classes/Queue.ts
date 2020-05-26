@@ -4,6 +4,7 @@ import * as Discord from "discord.js";
 import client from "../functions/Client";
 import getEnv from "../functions/getEnv";
 import { User } from "discord.js";
+import embedColors from "./embedColors";
 
 const QUEUE_ACCEPTING_MINUTES = parseInt(getEnv('DISCORD_STONKS_QUEUEACCEPTINGMINUTES', '30'));
 const QUEUE_MULTI_GROUP_SIZE = parseInt(getEnv('DISCORD_STONKS_QUEUEMULTIGROUPSIZE', '3'));
@@ -48,7 +49,7 @@ class QueueUserEntry {
     sendUpNextMessage(): void {
         const userUpNextEmbed = new Discord.MessageEmbed({
             title: `Your turn #${this.grantedVisits + 1} will be starting soon!`,
-            color: 16312092,
+            color: embedColors.Warning,
             description: `The user in front of you in the queue has just started their turn.\nYour turn will commence in at most ${QUEUE_TO_SELL_MINUTES} minutes. \nPlease prepare yourself to enter the Dodo-Code™, and don't forget your turnips!`
         });
         this.user.send(userUpNextEmbed);
@@ -65,7 +66,7 @@ class QueueUserEntry {
         const isLastVisit = this.grantedVisits + 1 >= this.maxVisits;
         const yourTurnEmbed = new Discord.MessageEmbed({
             title: "⏰ It's your turn!",
-            color: 16312092,
+            color: embedColors.Warning,
             description: `You have **${QUEUE_TO_SELL_MINUTES * (userWasHereLastTurn ? TIME_MULTIPLIER_IF_HERE_BEFORE : 1)} minutes** to connect, sell your turnips, and leave the island.\nOnce your timeslot expires, the next user in the queue will be automatically messaged.\nShould you be done early, please click 👍 to notify that you're done.${isLastVisit ? "" : "\nIf you wish to reconnect later to sell more, click 🔁 to be added to the queue again. *Please note that this also ends your turn!*"}`,
             fields: [
                 {name: "Dodo Code™", inline: false, value: `**${this.queue.dodoCode}**`},
@@ -97,7 +98,7 @@ class QueueUserEntry {
                 if (reason != 'time' && !isLastVisit && collected.size != 0 && collected.first().emoji.name == '🔁') {
                     turnMessage.channel.send({
                         embed: {
-                            color: 16711907,
+                            color: embedColors.Default,
                             description: `🔁 You have been added back into the queue.\nYour turn is over for now, but will continue soon! **Please prepare for your next visit immediately.**`
                         }
                     });
@@ -106,7 +107,7 @@ class QueueUserEntry {
                     this.queue.queuePositions[this.type]++;
                     turnMessage.channel.send({
                         embed: {
-                            color: 4886754,
+                            color: embedColors.Info,
                             description: `🤚 Your turn is now over. Thanks for joining the queue!`
                         }
                     });
@@ -221,7 +222,7 @@ export class QueueEntry {
         if (this._rawQueues.single.filter(e => e.user.id == userObject.id).length > 0 || this._rawQueues.some.filter(e => e.user.id == userObject.id).length > 0 || this._rawQueues.multi.filter(e => e.user.id == userObject.id).length > 0) return;
         // Make sure the user is DM-able, and send confirmation message.
         const addedToQueueEmbed = new Discord.MessageEmbed({
-            color: 16711907,
+            color: embedColors.Default,
             description: `You have been added to the queue for a maximum of ${type == 'single' ? '1' : type == 'some' ? "3" : "unlimited"} visit(s).\nYour estimated wait time is **⏳ minutes**.\n${type === 'multi' ? "\n⚠ **Because you signed up for potentially infinitely many visits, please keep in mind that your visiting streak might be interrupted for people with less visits.**\n\n" : ""}If you wish to leave the queue, click 👋.`
         });
         userObject.send(addedToQueueEmbed)
@@ -245,7 +246,7 @@ export class QueueEntry {
                         this._rawQueues[type].splice(foundUserIndex, 1);
                         leavingUser.send({
                             embed: {
-                                color: 16711907,
+                                color: embedColors.Default,
                                 description: `You have been removed from the queue.`
                             }
                         });
@@ -348,7 +349,7 @@ export class QueueEntry {
 
             if (!this.acceptingEntries) { // Queue is now closed and finished, too
                 const queueIsClosedEmbed = new Discord.MessageEmbed({
-                    color: 16711907,
+                    color: embedColors.Default,
                     description: `Thank you for sharing your turnip prices with everyone! It looks like the queue you started has come to an end. If you like, you can:`,
                     fields: [
                         {
